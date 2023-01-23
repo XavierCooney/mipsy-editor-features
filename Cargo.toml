@@ -1,0 +1,5 @@
+[workspace]
+members = ["mipsy_vscode"]
+
+[profile.dev]
+opt-level = 1
