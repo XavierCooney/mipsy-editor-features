@@ -1,4 +1,4 @@
-use std::rc::Rc;
+use std::{rc::Rc, collections::HashSet};
 use serde::{Serialize, Deserialize};
 use mipsy_parser::TaggedFile;
 use wasm_bindgen::prelude::*;
@@ -147,7 +147,8 @@ pub fn decompile_source(source: &str, filename: &str) -> String {
 pub struct DebugRuntime {
     mipsy_runtime: Option<SteppedRuntime>,
     binary: Binary,
-    latest_pc: Option<u32>
+    latest_pc: Option<u32>,
+    breakpoint_addrs: HashSet<u32>
 }
 
 #[derive(Serialize, Deserialize)]
@@ -184,6 +185,8 @@ impl DebugRuntime {
             }
             None => StepResult::NoRuntime
         };
+
+        self.check_for_breakpoint();
 
         Ok(serde_wasm_bindgen::to_value(&step_result)?)
     }
@@ -252,13 +255,45 @@ impl DebugRuntime {
                     self.mipsy_runtime = Some(Ok(new_runtime));
                     std::format!("print_char: {}",  args.value as char)
                 },
-                _ => "".into()
+                guard => {
+                    self.mipsy_runtime = Some(Err(guard));
+                    "".into()
+                }
             }
             None => "".into()
         };
         self.update_latest_pc();
+        self.check_for_breakpoint();
 
         print_result
+    }
+
+    pub fn acknowledge_breakpoint(&mut self) {
+        match self.mipsy_runtime.take() {
+            Some(Ok(runtime)) => {
+                self.mipsy_runtime = Some(Ok(runtime));
+            },
+            Some(Err(guard)) => match guard {
+                mipsy_lib::runtime::RuntimeSyscallGuard::Breakpoint(runtime) => {
+                    self.mipsy_runtime = Some(Ok(runtime));
+                    self.update_latest_pc();
+                },
+                guard => {
+                    self.mipsy_runtime = Some(Err(guard))
+                }
+            },
+            None => ()
+        }
+    }
+
+    pub fn check_for_breakpoint(&mut self) {
+        if let Some(Ok(runtime)) = &self.mipsy_runtime {
+            if self.breakpoint_addrs.contains(&runtime.timeline().state().pc()) {
+                self.mipsy_runtime = Some(Err(mipsy_lib::runtime::RuntimeSyscallGuard::Breakpoint(
+                    self.mipsy_runtime.take().unwrap().ok().unwrap() // ughh
+                )))
+            }
+        }
     }
 
     fn update_latest_pc(&mut self) {
@@ -284,7 +319,44 @@ impl DebugRuntime {
     }
 
     pub fn remove_runtime(&mut self) {
-        self.mipsy_runtime = None
+        self.mipsy_runtime = None;
+    }
+
+    pub fn set_breakpoints_from_lines(&mut self, breakpoint_lines: Vec<u32>) {
+        // if breakpoint_lines.is_empty() {
+        //     self.binary.breakpoints.clear();
+        //     return;
+        // }
+
+        // breakpoint_lines.sort_unstable();
+        // breakpoint_lines.dedup();
+
+        // let mut all_breakpoint_addrs: Vec<u32> = self.binary.line_numbers.iter().filter(
+        //     |(_, (_, line))| breakpoint_lines.contains(line)
+        // ).map(
+        //     |(&addr, _)| addr
+        // ).collect();
+
+        // all_breakpoint_addrs.sort_unstable();
+        // all_breakpoint_addrs.dedup();
+
+        // self.binary.breakpoints = all_breakpoint_addrs.iter().enumerate().map(
+        //     |(i, &addr)| (addr, Breakpoint::new(i as u32))
+        // ).collect();
+
+        if breakpoint_lines.is_empty() {
+            self.breakpoint_addrs.clear();
+            return;
+        }
+
+        // breakpoint_lines.sort_unstable();
+        // breakpoint_lines.dedup();
+
+        self.breakpoint_addrs = self.binary.line_numbers.iter().filter(
+            |(_, (_, line))| breakpoint_lines.contains(line)
+        ).map(
+            |(&addr, _)| addr
+        ).collect();
     }
 }
 
@@ -296,7 +368,8 @@ pub fn make_new_runtime(source: &str, filename: &str) -> Result<DebugRuntime, St
         |binary| DebugRuntime {
             binary: binary.to_owned(),
             mipsy_runtime: Some(Ok(mipsy_lib::runtime(&binary, &[]))),
-            latest_pc: None
+            latest_pc: None,
+            breakpoint_addrs: HashSet::new()
         }
     )
 }

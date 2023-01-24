@@ -8,7 +8,7 @@ import {
 import { make_new_runtime, DebugRuntime } from '../mipsy_vscode/pkg/mipsy_vscode';
 const { promises: fs } = require("fs");
 
-const rand = Math.floor(Math.random() * 9000) + 1000;
+// const rand = Math.floor(Math.random() * 9000) + 1000;
 
 const THREAD_ID = 1;
 const STEPS_PER_INTERVAL = 30;
@@ -27,7 +27,7 @@ class MipsRuntime {
         setInterval(() => {
             for (let i = 0; i < STEPS_PER_INTERVAL && this.autoRunning; ++i) {
                 if (!this.step()) {
-                    this.setAutorun(false);
+                    this.setAutorun(false, 'breakpoint');
                 }
             }
 
@@ -37,7 +37,11 @@ class MipsRuntime {
         }, 50);
     }
 
-    setAutorun(auto: boolean) {
+    setAutorun(auto: boolean, adapterReason: string) {
+        if (this.autoRunning && !auto) {
+            this.session.sendEvent(new StoppedEvent(adapterReason, THREAD_ID));
+            this.session.sendDebugLine('stoppped because ' + adapterReason);
+        }
         this.autoRunning = auto;
     }
 
@@ -62,22 +66,30 @@ class MipsRuntime {
                 this.session.sendEvent(new TerminatedEvent());
                 this.runtime.remove_runtime();
                 return true;
+            } else if (syscallGuard === 'breakpoint') {
+                this.runtime.acknowledge_breakpoint();
+                this.session.sendDebugLine('breakpoint!');
+                return false;
             } else {
                 this.session.sendDebugLine('syscall ' + syscallGuard);
                 return false;
             }
         } else if (result === 'NoRuntime') {
-            this.setAutorun(false);
+            this.setAutorun(false, 'step');
             return false;
         } else if (typeof result === 'object' && result['StepError']) {
             const err = result['StepError'];
             this.session.sendDebugLine('error: ' + err);
-            this.setAutorun(false);
+            this.setAutorun(false, 'step');
             return false;
         }
 
         this.session.sendDebugLine('result ' + JSON.stringify(result));
         return false;
+    }
+
+    setBreakpoints(lines: number[]) {
+        this.runtime.set_breakpoints_from_lines(new Uint32Array(lines));
     }
 
     getLineNum(): number | undefined {
@@ -90,6 +102,7 @@ class MipsSession extends LoggingDebugSession {
     private sourceFilePath: string = '';
     private source: string = '';
     private sourceName: string = '<source code>';
+    private initialBreakpoints: number[] = [];
 
     private runtime: MipsRuntime | undefined;
 
@@ -109,21 +122,20 @@ class MipsSession extends LoggingDebugSession {
         response.body.supportTerminateDebuggee = true;
 
         this.sendResponse(response);
-        this.sendDebugLine('hi hi');
         this.sendEvent(new InitializedEvent());
     }
 
     sendDebugLine(str: string) {
-        this.sendEvent(new OutputEvent(`[${rand}] ${str}\n`, 'debug console'));
+        this.sendEvent(new OutputEvent(`[debug] ${str}\n`, 'debug console'));
     }
 
     sendStdoutLine(str: string) {
-        this.sendEvent(new OutputEvent(`[${rand}] ${str}\n`, 'stdout'));
+        this.sendEvent(new OutputEvent(`${str}\n`, 'stdout'));
     }
 
     sendError(str: string) {
         // oh no!
-        this.sendEvent(new OutputEvent(`[${rand}] ${str}\n`, 'important'));
+        this.sendEvent(new OutputEvent(`${str}\n`, 'important'));
     }
 
     getSource() {
@@ -149,7 +161,7 @@ class MipsSession extends LoggingDebugSession {
     }
 
     protected async launchRequest(response: DebugProtocol.LaunchResponse, args: DebugProtocol.LaunchRequestArguments, request?: DebugProtocol.Request | undefined): Promise<void> {
-        this.sendDebugLine('opening');
+        // this.sendDebugLine('opening');
         this.sendResponse(response);
 
         // TODO: this is vscode specific, i have no idea how to get the path for other clients
@@ -180,6 +192,8 @@ class MipsSession extends LoggingDebugSession {
             this.sendEvent(new TerminatedEvent());
         }
 
+        this.runtime?.setBreakpoints(this.initialBreakpoints);
+
         // this.sendSource();
 
         this.sendEvent(new StoppedEvent(
@@ -207,13 +221,13 @@ class MipsSession extends LoggingDebugSession {
     }
 
     protected pauseRequest(response: DebugProtocol.PauseResponse, args: DebugProtocol.PauseArguments, request?: DebugProtocol.Request): void {
-        this.runtime?.setAutorun(false);
+        this.runtime?.setAutorun(false, 'pause');
         this.sendEvent(new StoppedEvent('pause', THREAD_ID));
     }
 
     protected continueRequest(response: DebugProtocol.ContinueResponse, args: DebugProtocol.ContinueArguments, request?: DebugProtocol.Request | undefined): void {
-        this.runtime?.setAutorun(true);
         this.sendResponse(response);
+        this.runtime?.setAutorun(true, 'continue');
     }
 
     protected nextRequest(response: DebugProtocol.NextResponse, args: DebugProtocol.NextArguments, request?: DebugProtocol.Request | undefined): void {
@@ -221,7 +235,15 @@ class MipsSession extends LoggingDebugSession {
             return;
         }
 
-        this.sendDebugLine('step ' + JSON.stringify(this.runtime.step()));
+        const oldLine = this.runtime.getLineNum();
+        while (this.runtime.step()) {
+            const newLine = this.runtime.getLineNum();
+            if (newLine !== oldLine && newLine !== undefined) {
+                break;
+            }
+        }
+
+        this.sendResponse(response);
         this.sendEvent(new StoppedEvent('step', THREAD_ID));
     }
 
@@ -239,14 +261,37 @@ class MipsSession extends LoggingDebugSession {
         this.sendResponse(response);
     }
 
+    protected setBreakPointsRequest(response: DebugProtocol.SetBreakpointsResponse, args: DebugProtocol.SetBreakpointsArguments, request?: DebugProtocol.Request | undefined): void {
+        this.sendDebugLine(JSON.stringify(args));
+
+        let breakpointLines = (args.breakpoints || []).map(
+            breakpoint => breakpoint.line
+        );
+
+        if (this.runtime) {
+            this.runtime.setBreakpoints(breakpointLines);
+        } else {
+            this.initialBreakpoints = breakpointLines;
+        }
+
+        this.sendResponse(response);
+    }
+
+    public sendEvent(event: DebugProtocol.Event): void {
+        if (event.event !== 'output') {
+            // this.sendDebugLine(`event ${JSON.stringify(event)}`);
+        }
+        return super.sendEvent(event);
+    }
+
     protected dispatchRequest(request: DebugProtocol.Request) {
-        // this.sendDebugLine(`req ${JSON.stringify(request)}`);
+        // this.sendDebugLine(`request ${JSON.stringify(request)}`);
         return super.dispatchRequest(request);
     }
 
     sendResponse(response: DebugProtocol.Response): void {
         // this.sendDebugLine(`response ${JSON.stringify(response)}`);
-        super.sendResponse(response);
+        return super.sendResponse(response);
     }
 }
 
