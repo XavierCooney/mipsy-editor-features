@@ -11,7 +11,7 @@ const { promises: fs } = require("fs");
 // const rand = Math.floor(Math.random() * 9000) + 1000;
 
 const THREAD_ID = 1;
-const STEPS_PER_INTERVAL = 30;
+const STEPS_PER_INTERVAL = 250;
 
 class MipsRuntime {
     private readonly runtime: DebugRuntime;
@@ -89,7 +89,9 @@ class MipsRuntime {
     }
 
     setBreakpoints(lines: number[]) {
-        this.runtime.set_breakpoints_from_lines(new Uint32Array(lines));
+        return Array.from(this.runtime.set_breakpoints_from_lines(
+            new Uint32Array(lines)
+        ));
     }
 
     getLineNum(): number | undefined {
@@ -264,15 +266,27 @@ class MipsSession extends LoggingDebugSession {
     protected setBreakPointsRequest(response: DebugProtocol.SetBreakpointsResponse, args: DebugProtocol.SetBreakpointsArguments, request?: DebugProtocol.Request | undefined): void {
         this.sendDebugLine(JSON.stringify(args));
 
-        let breakpointLines = (args.breakpoints || []).map(
+        const breakpoints = args.breakpoints || [];
+
+        let breakpointLines = breakpoints.map(
             breakpoint => breakpoint.line
         );
 
+        let linesWithActualBreakpoints: number[] = [];
+
         if (this.runtime) {
-            this.runtime.setBreakpoints(breakpointLines);
+            linesWithActualBreakpoints = this.runtime.setBreakpoints(breakpointLines);
         } else {
             this.initialBreakpoints = breakpointLines;
+            linesWithActualBreakpoints = breakpointLines; // guess that they're all valid
         }
+
+        response.body = {
+            breakpoints: breakpoints.map(b => ({
+                verified: linesWithActualBreakpoints.includes(b.line)
+            }))
+        };
+        this.sendDebugLine(JSON.stringify(response));
 
         this.sendResponse(response);
     }

@@ -322,7 +322,7 @@ impl DebugRuntime {
         self.mipsy_runtime = None;
     }
 
-    pub fn set_breakpoints_from_lines(&mut self, breakpoint_lines: Vec<u32>) {
+    pub fn set_breakpoints_from_lines(&mut self, breakpoint_lines: Vec<u32>) -> Vec<u32> {
         // if breakpoint_lines.is_empty() {
         //     self.binary.breakpoints.clear();
         //     return;
@@ -346,17 +346,21 @@ impl DebugRuntime {
 
         if breakpoint_lines.is_empty() {
             self.breakpoint_addrs.clear();
-            return;
+            return vec![];
         }
 
         // breakpoint_lines.sort_unstable();
         // breakpoint_lines.dedup();
 
-        self.breakpoint_addrs = self.binary.line_numbers.iter().filter(
+        let memory_locations = self.binary.line_numbers.iter().filter(
             |(_, (_, line))| breakpoint_lines.contains(line)
-        ).map(
-            |(&addr, _)| addr
-        ).collect();
+        ).collect::<Vec<_>>();
+
+        self.breakpoint_addrs = memory_locations.iter().map(|(&addr, _)| addr).collect();
+
+        memory_locations.iter().map(
+            |(_, &(_, line))| line
+        ).collect()
     }
 }
 

@@ -24,7 +24,7 @@ export function setupDebugButton(context: vscode.ExtensionContext) {
         );
     }));
 
-    context.subscriptions.push(vscode.debug.onDidTerminateDebugSession(console.log));
-    context.subscriptions.push(vscode.debug.onDidReceiveDebugSessionCustomEvent(console.log));
-    context.subscriptions.push(vscode.debug.onDidStartDebugSession(console.log));
+    // context.subscriptions.push(vscode.debug.onDidTerminateDebugSession(console.log));
+    // context.subscriptions.push(vscode.debug.onDidReceiveDebugSessionCustomEvent(console.log));
+    // context.subscriptions.push(vscode.debug.onDidStartDebugSession(console.log));
 }
