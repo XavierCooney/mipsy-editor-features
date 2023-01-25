@@ -317,9 +317,17 @@ impl DebugRuntime {
                     );
                 },
                 ReadChar(guard) => {
-                    (self.mipsy_runtime, user_message) = parse_input(
-                        guard, ReadChar, input.as_str()
-                    );
+                    let bytes = input.as_bytes();
+                    let maybe_char = if bytes.len() == 1 { bytes.first() } else { None };
+                    (self.mipsy_runtime, user_message) = if let Some(char) = maybe_char {
+                        (Some(Ok(guard(*char))), "ok".into())
+                    } else {
+                        (Some(Err(ReadChar(guard))), if bytes.len() == 0 {
+                            "invalid input: no character provided!"
+                        } else {
+                            "invalid input: too many characters provided!" // or non-ascii
+                        }.into())
+                    }
                 },
                 ReadString(args, guard) => {
                     let bytes = input.into_bytes();

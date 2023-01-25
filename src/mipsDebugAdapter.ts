@@ -75,7 +75,7 @@ class MipsRuntime {
                 if (this.inputNeeded) {
                     // we've already told the user to enter input, maybe say something different?
                     this.session.sendStdoutLine(
-                        `[enter your input to the ${syscallGuard} syscall in next to the \`>\` in the box below]`
+                        `[enter your input to the ${syscallGuard} syscall next to the \`>\` in the box below]`
                     );
                 } else {
                     this.inputNeeded = true;
