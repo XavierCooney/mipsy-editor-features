@@ -31,7 +31,6 @@ class MipsRuntime {
                 }
             }
 
-
             // this.session.sendEvent(new StoppedEvent('step'));
             // this.session.sendEvent(new ContinuedEvent(THREAD_ID));
         }, 50);
@@ -96,6 +95,39 @@ class MipsRuntime {
 
     getLineNum(): number | undefined {
         return this.runtime.get_line_num();
+    }
+
+    readRegisters() {
+        const arrayData = Array.from(this.runtime.dump_registers());
+
+        const writeMarker = arrayData[32];
+
+        const generalPurposeRegisterNames = [
+            'zero', 'at', 'v0', 'v1', 'a0', 'a1', 'a2', 'a3',
+            't0', 't1', 't2', 't3', 't4', 't5', 't6', 't7',
+            's0', 's1', 's2', 's3', 's4', 's5', 's6', 's7',
+            't8', 't9', 'k0', 'k1', 'gp', 'sp', 'fp', 'ra'
+        ];
+
+        const result: {
+            name: string, value: number
+        }[] = [];
+
+        generalPurposeRegisterNames.forEach((reg, idx) => {
+            if (writeMarker & (1 << idx)) {
+                result.push({
+                    name: '$' + reg,
+                    value: arrayData[idx]
+                });
+            }
+        });
+
+        return result;
+    }
+
+    getPC() {
+        const arrayData = Array.from(this.runtime.dump_registers());
+        return arrayData[arrayData.length - 1];
     }
 }
 
@@ -240,6 +272,7 @@ class MipsSession extends LoggingDebugSession {
         const oldLine = this.runtime.getLineNum();
         while (this.runtime.step()) {
             const newLine = this.runtime.getLineNum();
+            // this.sendDebugLine(`old ${oldLine}, new ${newLine}, pc ${this.runtime.getPC()}`);
             if (newLine !== oldLine && newLine !== undefined) {
                 break;
             }
@@ -287,6 +320,57 @@ class MipsSession extends LoggingDebugSession {
             }))
         };
         this.sendDebugLine(JSON.stringify(response));
+
+        this.sendResponse(response);
+    }
+
+    protected scopesRequest(response: DebugProtocol.ScopesResponse, args: DebugProtocol.ScopesArguments, request?: DebugProtocol.Request | undefined): void {
+        response.body = {
+            scopes: [{
+                name: 'Registers',
+                presentationHint: 'registers',
+                variablesReference: 7,
+                expensive: false,
+                source: this.getSource()
+            }]
+        };
+
+        this.sendResponse(response);
+    }
+
+    protected renderRegisterValue(value: number) {
+        // so this is probably not good, but as a heuristic, display small values (-1024 < x < 1024)
+        // as two's complement decimal, and larger ones as unsigned hexadecimal, since they're more
+        // likely to be addresses/bit fields/whatever
+        if (-1024 < value && value < 1024) {
+            return value.toString();
+        } else {
+            if (value < 0) {
+                value += (1 << 30) * 4;
+            }
+            return '0x' + value.toString(16).padStart(8, '0');
+        }
+    }
+
+    protected variablesRequest(response: DebugProtocol.VariablesResponse, args: DebugProtocol.VariablesArguments, request?: DebugProtocol.Request | undefined): void {
+        response.body = {
+            variables: []
+        };
+
+        if (this.runtime) {
+            const registers = this.runtime.readRegisters();
+            for (let register of registers) {
+                response.body.variables.push({
+                    name: register.name,
+                    value: this.renderRegisterValue(register.value),
+                    presentationHint: {
+                        kind: 'data',
+                        attributes: ['readOnly']
+                    },
+                    variablesReference: 0,
+                });
+            }
+        }
 
         this.sendResponse(response);
     }

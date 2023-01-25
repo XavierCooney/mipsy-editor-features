@@ -107,7 +107,7 @@ pub fn test_compile(source: &str, filename: &str, max_problems: usize) -> Result
     })?)
 }
 
-fn compile_form_source(source: &str, filename: &str, reason: &str, iset: &InstSet) -> Result<Binary, String> {
+fn compile_from_source(source: &str, filename: &str, reason: &str, iset: &InstSet) -> Result<Binary, String> {
     let compiler_options = &CompilerOptions::new(vec![]);
     let config = &MipsyConfig::default();
 
@@ -138,17 +138,25 @@ fn compile_form_source(source: &str, filename: &str, reason: &str, iset: &InstSe
 pub fn decompile_source(source: &str, filename: &str) -> String {
     let iset = &mipsy_instructions::inst_set();
 
-    compile_form_source(source, filename, "dissassembled", iset).map(
+    compile_from_source(source, filename, "dissassembled", iset).map(
         |binary| mipsy_lib::decompile(iset, &binary)
     ).unwrap_or_else(|msg| msg)
+}
+
+struct RegisterCache {
+    registers: [i32; 32],
+    write_marks: u32,
+    hi: Option<i32>,
+    lo: Option<i32>,
+    pc: Option<u32>
 }
 
 #[wasm_bindgen]
 pub struct DebugRuntime {
     mipsy_runtime: Option<SteppedRuntime>,
     binary: Binary,
-    latest_pc: Option<u32>,
-    breakpoint_addrs: HashSet<u32>
+    breakpoint_addrs: HashSet<u32>,
+    registers: RegisterCache,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -158,22 +166,19 @@ pub enum StepResult {
 
 #[wasm_bindgen]
 impl DebugRuntime {
-    #[wasm_bindgen]
     pub fn step_debug(&mut self) -> Result<JsValue, JsValue> {
         let step_result = match self.mipsy_runtime.take() {
             Some(Ok(runtime)) => {
                 match runtime.step() {
                     Ok(new_stepped_runtime) => {
-                        if let Ok(new_runtime) = &new_stepped_runtime {
-                            self.latest_pc = Some(new_runtime.timeline().state().pc());
-                        }
                         self.mipsy_runtime = Some(new_stepped_runtime);
+                        self.update_cached_registers();
 
                         StepResult::StepSuccess
                     }
                     Err((new_runtime, _mipsy_error)) => {
-                        self.latest_pc = Some(new_runtime.timeline().state().pc());
                         self.mipsy_runtime = Some(Ok(new_runtime));
+                        self.update_cached_registers();
 
                         StepResult::StepError(":(".into())
                     }
@@ -262,7 +267,8 @@ impl DebugRuntime {
             }
             None => "".into()
         };
-        self.update_latest_pc();
+
+        self.update_cached_registers();
         self.check_for_breakpoint();
 
         print_result
@@ -276,7 +282,7 @@ impl DebugRuntime {
             Some(Err(guard)) => match guard {
                 mipsy_lib::runtime::RuntimeSyscallGuard::Breakpoint(runtime) => {
                     self.mipsy_runtime = Some(Ok(runtime));
-                    self.update_latest_pc();
+                    self.update_cached_registers();
                 },
                 guard => {
                     self.mipsy_runtime = Some(Err(guard))
@@ -296,14 +302,38 @@ impl DebugRuntime {
         }
     }
 
-    fn update_latest_pc(&mut self) {
+    fn update_cached_registers(&mut self) {
         if let Some(Ok(runtime)) = &self.mipsy_runtime {
-            self.latest_pc = Some(runtime.timeline().state().pc());
+            let state = runtime.timeline().state();
+            self.registers.pc = Some(state.pc());
+            self.registers.write_marks = 0;
+            for i in 0..32 {
+                if let mipsy_lib::Safe::Valid(val) = state.registers()[i] {
+                    self.registers.registers[i] = val;
+                    self.registers.write_marks |= 1 << i;
+                }
+            }
+            self.registers.hi = state.read_hi().ok();
+            self.registers.lo = state.read_hi().ok();
         }
     }
 
+    pub fn dump_registers(&self) -> Vec<i32> {
+        let mut vec: Vec<i32> = Vec::with_capacity(38);
+
+        vec.extend_from_slice(self.registers.registers.as_slice());
+        vec.push(self.registers.write_marks as i32);
+        vec.push(self.registers.hi.unwrap_or(0));
+        vec.push(self.registers.lo.unwrap_or(0));
+        vec.push(self.registers.hi.is_some().into());
+        vec.push(self.registers.lo.is_some().into());
+        vec.push(self.registers.pc.unwrap_or(0) as i32);
+
+        vec
+    }
+
     pub fn get_line_num(&self) -> Option<u32> {
-        self.latest_pc.filter(|&pc| pc <= mipsy_lib::compile::TEXT_TOP).and_then(
+        self.registers.pc.filter(|&pc| pc <= mipsy_lib::compile::TEXT_TOP).and_then(
             |pc| self.binary.line_numbers.get(&pc).or_else(|| {
                 // from get_line_info in runtime_handler.rs
                 let mut lines = self.binary.line_numbers
@@ -362,18 +392,28 @@ impl DebugRuntime {
             |(_, &(_, line))| line
         ).collect()
     }
+
+    pub fn get_registers() -> Vec<u64> {
+        vec![]
+    }
 }
 
 #[wasm_bindgen]
 pub fn make_new_runtime(source: &str, filename: &str) -> Result<DebugRuntime, String> {
     let iset = &mipsy_instructions::inst_set();
 
-    compile_form_source(source, filename, "run", iset).map(
+    compile_from_source(source, filename, "run", iset).map(
         |binary| DebugRuntime {
             binary: binary.to_owned(),
             mipsy_runtime: Some(Ok(mipsy_lib::runtime(&binary, &[]))),
-            latest_pc: None,
-            breakpoint_addrs: HashSet::new()
+            breakpoint_addrs: HashSet::new(),
+            registers: RegisterCache {
+                registers: [0; 32],
+                write_marks: 0,
+                hi: None,
+                lo: None,
+                pc: None,
+            }
         }
     )
 }
