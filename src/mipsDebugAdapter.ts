@@ -18,6 +18,7 @@ class MipsRuntime {
     private autoRunning: boolean;
     public inputNeeded: boolean;
     private resumeOnInput: boolean;
+    public runningReverse: boolean;
 
     constructor(readonly source: string, readonly filename: string, readonly path: string, readonly session: MipsSession) {
         this.runtime = make_new_runtime(
@@ -26,12 +27,19 @@ class MipsRuntime {
         this.autoRunning = false;
         this.inputNeeded = false;
         this.resumeOnInput = false;
+        this.runningReverse = false;
 
         // literally the jankiest part of this whole thing
         setInterval(() => {
             for (let i = 0; i < STEPS_PER_INTERVAL && this.autoRunning; ++i) {
-                if (!this.step()) {
-                    this.setAutorun(false, 'breakpoint');
+                if (!this.runningReverse) {
+                    if (!this.step()) {
+                        this.setAutorun(false, 'breakpoint');
+                    }
+                } else {
+                    if (!this.stepBack()) {
+                        this.setAutorun(false, 'breakpoint');
+                    }
                 }
             }
 
@@ -44,7 +52,13 @@ class MipsRuntime {
         if (this.autoRunning && !auto) {
             this.session.sendEvent(new StoppedEvent(adapterReason, THREAD_ID));
         }
+        this.runningReverse = false;
         this.autoRunning = auto;
+    }
+
+    runReverse() {
+        this.runningReverse = true;
+        this.autoRunning = true;
     }
 
     step(): boolean {
@@ -70,11 +84,11 @@ class MipsRuntime {
                 return false;
             } else if (syscallGuard === 'breakpoint') {
                 this.runtime.acknowledge_breakpoint();
-                return false;
+                return !this.autoRunning; // stop the autorun, but don't stop single stepping
             } else if (syscallGuard.startsWith('read_')) {
                 if (this.inputNeeded) {
                     // we've already told the user to enter input, maybe say something different?
-                    this.session.sendStdoutLine(
+                    this.session.sendStderrLine(
                         `[enter your input to the ${syscallGuard} syscall next to the \`>\` in the box below]`
                     );
                 } else {
@@ -96,13 +110,18 @@ class MipsRuntime {
             return false;
         } else if (typeof result === 'object' && result['StepError']) {
             const err = result['StepError'];
-            this.session.sendDebugLine('error: ' + err);
+            this.session.sendStderrLine('An error has occured:\n' + err);
             this.setAutorun(false, 'step');
             return false;
         }
 
         this.session.sendDebugLine('result ' + JSON.stringify(result));
         return false;
+    }
+
+    stepBack() {
+        this.inputNeeded = false;
+        return this.runtime.step_back(this.autoRunning && this.runningReverse);
     }
 
     setBreakpoints(lines: number[]) {
@@ -213,6 +232,10 @@ class MipsSession extends LoggingDebugSession {
 
     sendStdoutLine(str: string) {
         this.sendEvent(new OutputEvent(`${str}\n`, 'stdout'));
+    }
+
+    sendStderrLine(str: string) {
+        this.sendEvent(new OutputEvent(`${str}\n`, 'stderr'));
     }
 
     sendError(str: string) {
@@ -335,6 +358,26 @@ class MipsSession extends LoggingDebugSession {
         this.runtime?.step();
         this.sendResponse(response);
         this.sendEvent(new StoppedEvent('step', THREAD_ID));
+    }
+
+    protected stepBackRequest(response: DebugProtocol.StepBackResponse, args: DebugProtocol.StepBackArguments, request?: DebugProtocol.Request | undefined): void {
+        if (this.runtime) {
+            const oldLine = this.runtime.getLineNum();
+            while (this.runtime.stepBack()) {
+                const newLine = this.runtime.getLineNum();
+                // this.sendDebugLine(`old ${oldLine}, new ${newLine}, pc ${this.runtime.getPC()}`);
+                if (newLine !== oldLine && newLine !== undefined) {
+                    break;
+                }
+            }
+        }
+        this.sendResponse(response);
+        this.sendEvent(new StoppedEvent('step', THREAD_ID));
+    }
+
+    protected reverseContinueRequest(response: DebugProtocol.ReverseContinueResponse, args: DebugProtocol.ReverseContinueArguments, request?: DebugProtocol.Request | undefined): void {
+        this.runtime?.runReverse();
+        this.sendResponse(response);
     }
 
     protected evaluateRequest(response: DebugProtocol.EvaluateResponse, args: DebugProtocol.EvaluateArguments, request?: DebugProtocol.Request | undefined): void {

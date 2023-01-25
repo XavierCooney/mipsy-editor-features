@@ -2,7 +2,7 @@ use std::{rc::Rc, collections::HashSet, str::FromStr, fmt::{Display}};
 use serde::{Serialize, Deserialize};
 use mipsy_parser::TaggedFile;
 use wasm_bindgen::prelude::*;
-use mipsy_lib::{compile::{CompilerOptions}, MipsyError, InstSet, Binary, runtime::{SteppedRuntime, RuntimeSyscallGuard}, Runtime};
+use mipsy_lib::{compile::{CompilerOptions}, MipsyError, InstSet, Binary, runtime::{SteppedRuntime, RuntimeSyscallGuard}, Runtime, error::runtime::ErrorContext};
 use mipsy_utils::{MipsyConfig};
 
 
@@ -157,6 +157,8 @@ pub struct DebugRuntime {
     binary: Binary,
     breakpoint_addrs: HashSet<u32>,
     registers: RegisterCache,
+    iset: InstSet,
+    sources: Vec<(Rc<str>, Rc<str>)>
 }
 
 #[derive(Serialize, Deserialize)]
@@ -176,11 +178,26 @@ impl DebugRuntime {
 
                         StepResult::StepSuccess
                     }
-                    Err((new_runtime, _mipsy_error)) => {
-                        self.mipsy_runtime = Some(Ok(new_runtime));
+                    Err((old_runtime, mipsy_error)) => {
+                        // StepResult::StepError(":(".into())
+                        let msg = StepResult::StepError(match mipsy_error {
+                            MipsyError::Parser(_) | MipsyError::Compiler(_) =>
+                                "A parser/compiler error?!".into(),
+                            MipsyError::Runtime(err) => {
+                                err.error().message(
+                                    ErrorContext::Binary,
+                                    &self.sources,
+                                    &self.iset,
+                                    &self.binary,
+                                    &old_runtime
+                                )
+                            },
+                        });
+
+                        self.mipsy_runtime = Some(Ok(old_runtime));
                         self.update_cached_registers();
 
-                        StepResult::StepError(":(".into())
+                        msg
                     }
                 }
             }
@@ -424,6 +441,47 @@ impl DebugRuntime {
         )
     }
 
+    pub fn step_back(&mut self, stop_on_breakpoint: bool) -> bool {
+        let mut runtime = match self.mipsy_runtime.take() {
+            None => return false,
+            Some(Ok(runtime)) => runtime,
+            Some(Err(guard)) => match guard {
+                // we might be at a syscall guard - but in order to
+                // access previous states we need a Runtime. so to
+                // get a Runtime we pretend to actually run the syscall,
+                // so that we can then rewind time
+                RuntimeSyscallGuard::PrintInt(_, r) =>r,
+                RuntimeSyscallGuard::PrintFloat(_, r) => r,
+                RuntimeSyscallGuard::PrintDouble(_, r) => r,
+                RuntimeSyscallGuard::PrintString(_, r) => r,
+                RuntimeSyscallGuard::PrintChar(_, r) => r,
+                RuntimeSyscallGuard::ReadInt(r) => r(0),
+                RuntimeSyscallGuard::ReadFloat(r) => r(0f32),
+                RuntimeSyscallGuard::ReadDouble(r) => r(0f64),
+                RuntimeSyscallGuard::ReadChar(r) => r(0),
+                RuntimeSyscallGuard::ReadString(_, r) => r(vec![]),
+                RuntimeSyscallGuard::Sbrk(_, r) => r,
+                RuntimeSyscallGuard::Exit(r) => r,
+                RuntimeSyscallGuard::Open(_, r) => r(0),
+                RuntimeSyscallGuard::Read(_, r) => r((0, vec![])),
+                RuntimeSyscallGuard::Write(_, r) => r(0),
+                RuntimeSyscallGuard::Close(_, r) => r(0),
+                RuntimeSyscallGuard::ExitStatus(_, r) => r,
+                RuntimeSyscallGuard::Breakpoint(r) => r,
+                RuntimeSyscallGuard::Trap(r) => r,
+            }
+        };
+
+        let success = runtime.timeline_mut().pop_last_state();
+        self.mipsy_runtime = Some(Ok(runtime));
+
+        self.update_cached_registers();
+
+        let hit_breakpoint = stop_on_breakpoint && self.breakpoint_addrs.contains(&self.registers.pc.unwrap_or(0));
+
+        return success && !hit_breakpoint;
+    }
+
     pub fn remove_runtime(&mut self) {
         self.mipsy_runtime = None;
     }
@@ -448,9 +506,9 @@ impl DebugRuntime {
 
 #[wasm_bindgen]
 pub fn make_new_runtime(source: &str, filename: &str) -> Result<DebugRuntime, String> {
-    let iset = &mipsy_instructions::inst_set();
+    let iset = mipsy_instructions::inst_set();
 
-    compile_from_source(source, filename, "run", iset).map(
+    compile_from_source(source, filename, "run", &iset).map(
         |binary| DebugRuntime {
             binary: binary.to_owned(),
             mipsy_runtime: Some(Ok(mipsy_lib::runtime(&binary, &[]))),
@@ -461,7 +519,9 @@ pub fn make_new_runtime(source: &str, filename: &str) -> Result<DebugRuntime, St
                 hi: None,
                 lo: None,
                 pc: None,
-            }
+            },
+            iset: iset,
+            sources: vec![(filename.into(), source.into())]
         }
     )
 }
