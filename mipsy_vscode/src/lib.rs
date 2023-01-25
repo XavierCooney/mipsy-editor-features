@@ -1,8 +1,8 @@
-use std::{rc::Rc, collections::HashSet};
+use std::{rc::Rc, collections::HashSet, str::FromStr, fmt::{Display}};
 use serde::{Serialize, Deserialize};
 use mipsy_parser::TaggedFile;
 use wasm_bindgen::prelude::*;
-use mipsy_lib::{compile::{CompilerOptions}, MipsyError, InstSet, Binary, runtime::SteppedRuntime};
+use mipsy_lib::{compile::{CompilerOptions}, MipsyError, InstSet, Binary, runtime::{SteppedRuntime, RuntimeSyscallGuard}, Runtime};
 use mipsy_utils::{MipsyConfig};
 
 
@@ -212,11 +212,11 @@ impl DebugRuntime {
                 PrintDouble(_, _) => "print",
                 PrintString(_, _) => "print",
                 PrintChar(_, _) => "print",
-                ReadInt(_) => "read",
-                ReadFloat(_) => "read",
-                ReadDouble(_) => "read",
-                ReadChar(_) => "read",
-                ReadString(_, _) => "read",
+                ReadInt(_) => "read_int",
+                ReadFloat(_) => "read_float",
+                ReadDouble(_) => "read_double",
+                ReadChar(_) => "read_character",
+                ReadString(_, _) => "read_string",
                 Sbrk(_, _) => "sbrk",
                 Exit(_) => "exit",
                 Open(_, _) => "open",
@@ -272,6 +272,74 @@ impl DebugRuntime {
         self.check_for_breakpoint();
 
         print_result
+    }
+
+    pub fn provide_input(&mut self, input: String) -> String {
+        use mipsy_lib::runtime::RuntimeSyscallGuard::*;
+
+        let mut user_message: String = "".into();
+
+        // rust is awesome
+        fn parse_input<T>(guard: Box<dyn FnOnce(T) -> Runtime>, variant: fn(Box<dyn FnOnce(T) -> Runtime>) -> RuntimeSyscallGuard, input: &str) -> (Option<SteppedRuntime>, String)
+        where
+            T: FromStr + Display,
+            <T as FromStr>::Err: Display,
+        {
+            match input.parse() {
+                Ok(value) => (Some(Ok(guard(value))), "ok".into()),
+                Err(err) => {
+                    (
+                        Some(Err(variant(guard))),
+                        std::format!("invalid input: {}", err.to_string())
+                    )
+                }
+            }
+        }
+
+        match self.mipsy_runtime.take() {
+            Some(Ok(runtime)) => {
+                self.mipsy_runtime = Some(Ok(runtime));
+            }
+            Some(Err(guard)) => match guard {
+                ReadInt(guard) => {
+                    (self.mipsy_runtime, user_message) = parse_input(
+                        guard, ReadInt, input.trim()
+                    );
+                },
+                ReadFloat(guard) => {
+                    (self.mipsy_runtime, user_message) = parse_input(
+                        guard, ReadFloat, input.trim()
+                    );
+                },
+                ReadDouble(guard) => {
+                    (self.mipsy_runtime, user_message) = parse_input(
+                        guard, ReadDouble, input.trim()
+                    );
+                },
+                ReadChar(guard) => {
+                    (self.mipsy_runtime, user_message) = parse_input(
+                        guard, ReadChar, input.as_str()
+                    );
+                },
+                ReadString(args, guard) => {
+                    let bytes = input.into_bytes();
+                    (self.mipsy_runtime, user_message) = if bytes.len() > args.max_len as usize {
+                        (Some(Ok(guard(bytes))), "ok".into())
+                    } else {
+                        (Some(Err(ReadString(args, guard))), "invalid input: string too long!".into())
+                    }
+                }
+                guard => {
+                    self.mipsy_runtime = Some(Err(guard));
+                }
+            }
+            None => ()
+        };
+
+        self.update_cached_registers();
+        self.check_for_breakpoint();
+
+        user_message
     }
 
     pub fn acknowledge_breakpoint(&mut self) {
@@ -353,34 +421,10 @@ impl DebugRuntime {
     }
 
     pub fn set_breakpoints_from_lines(&mut self, breakpoint_lines: Vec<u32>) -> Vec<u32> {
-        // if breakpoint_lines.is_empty() {
-        //     self.binary.breakpoints.clear();
-        //     return;
-        // }
-
-        // breakpoint_lines.sort_unstable();
-        // breakpoint_lines.dedup();
-
-        // let mut all_breakpoint_addrs: Vec<u32> = self.binary.line_numbers.iter().filter(
-        //     |(_, (_, line))| breakpoint_lines.contains(line)
-        // ).map(
-        //     |(&addr, _)| addr
-        // ).collect();
-
-        // all_breakpoint_addrs.sort_unstable();
-        // all_breakpoint_addrs.dedup();
-
-        // self.binary.breakpoints = all_breakpoint_addrs.iter().enumerate().map(
-        //     |(i, &addr)| (addr, Breakpoint::new(i as u32))
-        // ).collect();
-
         if breakpoint_lines.is_empty() {
             self.breakpoint_addrs.clear();
             return vec![];
         }
-
-        // breakpoint_lines.sort_unstable();
-        // breakpoint_lines.dedup();
 
         let memory_locations = self.binary.line_numbers.iter().filter(
             |(_, (_, line))| breakpoint_lines.contains(line)
@@ -391,10 +435,6 @@ impl DebugRuntime {
         memory_locations.iter().map(
             |(_, &(_, line))| line
         ).collect()
-    }
-
-    pub fn get_registers() -> Vec<u64> {
-        vec![]
     }
 }
 

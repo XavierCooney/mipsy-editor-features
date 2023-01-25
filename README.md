@@ -15,7 +15,6 @@ Language server / decompile button / debugger all work by running mipsy compiled
 TODO:
  - Add hover + completion + go to definition to the language server
  - Make the debugger better handle output
- - Make the debugger handle input
  - Make the reverse step debugger button actually do something
  - Add other watchpoints?
  - Make the code not terrible

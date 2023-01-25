@@ -16,12 +16,16 @@ const STEPS_PER_INTERVAL = 250;
 class MipsRuntime {
     private readonly runtime: DebugRuntime;
     private autoRunning: boolean;
+    public inputNeeded: boolean;
+    private resumeOnInput: boolean;
 
     constructor(readonly source: string, readonly filename: string, readonly path: string, readonly session: MipsSession) {
         this.runtime = make_new_runtime(
             source, filename
         );
         this.autoRunning = false;
+        this.inputNeeded = false;
+        this.resumeOnInput = false;
 
         // literally the jankiest part of this whole thing
         setInterval(() => {
@@ -39,7 +43,6 @@ class MipsRuntime {
     setAutorun(auto: boolean, adapterReason: string) {
         if (this.autoRunning && !auto) {
             this.session.sendEvent(new StoppedEvent(adapterReason, THREAD_ID));
-            this.session.sendDebugLine('stoppped because ' + adapterReason);
         }
         this.autoRunning = auto;
     }
@@ -56,21 +59,36 @@ class MipsRuntime {
                 const printResult = this.runtime.do_print();
 
                 if (printResult.length) {
-                    this.session.sendStdoutLine(printResult);
+                    this.session.sendStdoutLine('syscall ' + printResult);
                 }
 
                 return true;
             } else if (syscallGuard === 'exit') {
-                this.session.sendStdoutLine('exiting...');
+                this.session.sendStdoutLine('syscall exit: exiting...');
                 this.session.sendEvent(new TerminatedEvent());
                 this.runtime.remove_runtime();
-                return true;
+                return false;
             } else if (syscallGuard === 'breakpoint') {
                 this.runtime.acknowledge_breakpoint();
-                this.session.sendDebugLine('breakpoint!');
+                return false;
+            } else if (syscallGuard.startsWith('read_')) {
+                if (this.inputNeeded) {
+                    // we've already told the user to enter input, maybe say something different?
+                    this.session.sendStdoutLine(
+                        `[enter your input to the ${syscallGuard} syscall in next to the \`>\` in the box below]`
+                    );
+                } else {
+                    this.inputNeeded = true;
+                    this.session.sendStdoutLine(
+                        `syscall ${syscallGuard}: [enter your input in the box below]`
+                    );
+                }
+
+                this.resumeOnInput = this.autoRunning;
+
                 return false;
             } else {
-                this.session.sendDebugLine('syscall ' + syscallGuard);
+                this.session.sendDebugLine('unhandled syscall ' + syscallGuard);
                 return false;
             }
         } else if (result === 'NoRuntime') {
@@ -128,6 +146,36 @@ class MipsRuntime {
     getPC() {
         const arrayData = Array.from(this.runtime.dump_registers());
         return arrayData[arrayData.length - 1];
+    }
+
+    provideInput(input: string) {
+        const sycallType = this.runtime.get_syscall_type();
+        if (!sycallType.startsWith('read_')) {
+            return 'not read syscall';
+        }
+
+        const result = this.runtime.provide_input(input);
+
+        if (result === 'ok') {
+            this.inputNeeded = false;
+
+            if (this.resumeOnInput) {
+                this.setAutorun(true, '');
+                this.session.sendEvent(new ContinuedEvent(THREAD_ID));
+            } else {
+                // this.session.sendEvent(new InvalidatedEvent(undefined, THREAD_ID));
+                this.session.sendEvent(new ContinuedEvent(THREAD_ID));
+                this.session.sendEvent(new StoppedEvent('step', THREAD_ID));
+            }
+
+            return `syscall ${sycallType}: ${input}`;
+        } else if (result) {
+            return result;
+            // this.session.sendStdoutLine(result);
+        } else {
+            this.session.sendDebugLine('empty result...');
+            return 'error';
+        }
     }
 }
 
@@ -264,22 +312,51 @@ class MipsSession extends LoggingDebugSession {
         this.runtime?.setAutorun(true, 'continue');
     }
 
-    protected nextRequest(response: DebugProtocol.NextResponse, args: DebugProtocol.NextArguments, request?: DebugProtocol.Request | undefined): void {
-        if (!this.runtime) {
-            return;
-        }
-
-        const oldLine = this.runtime.getLineNum();
-        while (this.runtime.step()) {
-            const newLine = this.runtime.getLineNum();
-            // this.sendDebugLine(`old ${oldLine}, new ${newLine}, pc ${this.runtime.getPC()}`);
-            if (newLine !== oldLine && newLine !== undefined) {
-                break;
+    performStepNext() {
+        if (this.runtime) {
+            const oldLine = this.runtime.getLineNum();
+            while (this.runtime.step()) {
+                const newLine = this.runtime.getLineNum();
+                // this.sendDebugLine(`old ${oldLine}, new ${newLine}, pc ${this.runtime.getPC()}`);
+                if (newLine !== oldLine && newLine !== undefined) {
+                    break;
+                }
             }
         }
+    }
 
+    protected nextRequest(response: DebugProtocol.NextResponse, args: DebugProtocol.NextArguments, request?: DebugProtocol.Request | undefined): void {
+        this.performStepNext();
         this.sendResponse(response);
         this.sendEvent(new StoppedEvent('step', THREAD_ID));
+    }
+
+    protected stepInRequest(response: DebugProtocol.StepInResponse, args: DebugProtocol.StepInArguments, request?: DebugProtocol.Request | undefined): void {
+        this.runtime?.step();
+        this.sendResponse(response);
+        this.sendEvent(new StoppedEvent('step', THREAD_ID));
+    }
+
+    protected evaluateRequest(response: DebugProtocol.EvaluateResponse, args: DebugProtocol.EvaluateArguments, request?: DebugProtocol.Request | undefined): void {
+        // this is a ui hack, but use the repl as the input box. in vscode it makes sense
+        if (!args.context || args.context !== 'repl') {
+            this.sendResponse(response);
+        }
+
+        let result = '';
+        if (!this.runtime?.inputNeeded) {
+            // this.sendError('not currently in input syscall!');
+            // this.sendResponse(response);
+            result = 'not currently in input syscall!';
+        } else {
+            result = this.runtime.provideInput(args.expression);
+        }
+
+        response.body = {
+            result,
+            variablesReference: 0
+        };
+        this.sendResponse(response);
     }
 
     protected stackTraceRequest(response: DebugProtocol.StackTraceResponse, args: DebugProtocol.StackTraceArguments, request?: DebugProtocol.Request): void {
@@ -297,8 +374,6 @@ class MipsSession extends LoggingDebugSession {
     }
 
     protected setBreakPointsRequest(response: DebugProtocol.SetBreakpointsResponse, args: DebugProtocol.SetBreakpointsArguments, request?: DebugProtocol.Request | undefined): void {
-        this.sendDebugLine(JSON.stringify(args));
-
         const breakpoints = args.breakpoints || [];
 
         let breakpointLines = breakpoints.map(
@@ -319,7 +394,6 @@ class MipsSession extends LoggingDebugSession {
                 verified: linesWithActualBreakpoints.includes(b.line)
             }))
         };
-        this.sendDebugLine(JSON.stringify(response));
 
         this.sendResponse(response);
     }
