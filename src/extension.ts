@@ -3,6 +3,7 @@ import * as vscode from 'vscode';
 import { setupDecompilationButton } from './decompileView';
 import { setupDebugButton } from './launchDebug';
 import { deactivateClient, startLSP } from './lspClient';
+import { setupMemoryButton } from './memoryViewer';
 
 
 export function activate(context: vscode.ExtensionContext) {
@@ -11,6 +12,7 @@ export function activate(context: vscode.ExtensionContext) {
     startLSP(context);
     setupDecompilationButton(context);
     setupDebugButton(context);
+    setupMemoryButton(context);
 
     context.subscriptions.push(vscode.debug.registerDebugAdapterTrackerFactory('*', {
         createDebugAdapterTracker(session: vscode.DebugSession) {

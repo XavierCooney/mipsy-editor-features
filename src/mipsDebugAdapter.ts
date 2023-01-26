@@ -159,6 +159,24 @@ class MipsRuntime {
             }
         });
 
+        if (arrayData[35]) {
+            result.push({
+                name: 'HI',
+                value: arrayData[33]
+            });
+        }
+        if (arrayData[36]) {
+            result.push({
+                name: 'LO',
+                value: arrayData[34]
+            });
+        }
+
+        result.push({
+            name: 'PC',
+            value: arrayData[37]
+        });
+
         return result;
     }
 
@@ -465,7 +483,7 @@ class MipsSession extends LoggingDebugSession {
             if (value < 0) {
                 value += (1 << 30) * 4;
             }
-            return '0x' + value.toString(16).padStart(8, '0');
+            return '0x' + value.toString(16).padStart(8, '0').toUpperCase();
         }
     }
 

@@ -190,7 +190,7 @@ impl DebugRuntime {
                                     &self.iset,
                                     &self.binary,
                                     &old_runtime
-                                )
+                                ).trim().into()
                             },
                         });
 
@@ -407,7 +407,7 @@ impl DebugRuntime {
                 }
             }
             self.registers.hi = state.read_hi().ok();
-            self.registers.lo = state.read_hi().ok();
+            self.registers.lo = state.read_lo().ok();
         }
     }
 
@@ -509,19 +509,23 @@ pub fn make_new_runtime(source: &str, filename: &str) -> Result<DebugRuntime, St
     let iset = mipsy_instructions::inst_set();
 
     compile_from_source(source, filename, "run", &iset).map(
-        |binary| DebugRuntime {
-            binary: binary.to_owned(),
-            mipsy_runtime: Some(Ok(mipsy_lib::runtime(&binary, &[]))),
-            breakpoint_addrs: HashSet::new(),
-            registers: RegisterCache {
-                registers: [0; 32],
-                write_marks: 0,
-                hi: None,
-                lo: None,
-                pc: None,
-            },
-            iset: iset,
-            sources: vec![(filename.into(), source.into())]
+        |binary| {
+            let mut runtime = DebugRuntime {
+                binary: binary.to_owned(),
+                mipsy_runtime: Some(Ok(mipsy_lib::runtime(&binary, &[]))),
+                breakpoint_addrs: HashSet::new(),
+                registers: RegisterCache {
+                    registers: [0; 32],
+                    write_marks: 0,
+                    hi: None,
+                    lo: None,
+                    pc: None,
+                },
+                iset: iset,
+                sources: vec![(filename.into(), source.into())]
+            };
+            runtime.update_cached_registers();
+            runtime
         }
     )
 }
