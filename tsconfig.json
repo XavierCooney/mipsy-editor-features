@@ -12,6 +12,7 @@
 		"strict": true,
 		"noImplicitAny": true,
 		"noImplicitReturns": true,
-		"noFallthroughCasesInSwitch": true
+		"noFallthroughCasesInSwitch": true,
+		"skipLibCheck": true
 	}
 }

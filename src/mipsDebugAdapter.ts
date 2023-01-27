@@ -185,6 +185,10 @@ class MipsRuntime {
         return arrayData[arrayData.length - 1];
     }
 
+    readMemory() {
+        return Array.from(this.runtime.read_memory());
+    }
+
     provideInput(input: string) {
         const sycallType = this.runtime.get_syscall_type();
         if (!sycallType.startsWith('read_')) {
@@ -222,6 +226,7 @@ class MipsSession extends LoggingDebugSession {
     private source: string = '';
     private sourceName: string = '<source code>';
     private initialBreakpoints: number[] = [];
+    private isVSCode: boolean = false;
 
     private runtime: MipsRuntime | undefined;
 
@@ -240,8 +245,14 @@ class MipsSession extends LoggingDebugSession {
 
         response.body.supportTerminateDebuggee = true;
 
+        if (args.adapterID === 'mipsy-1' && args.clientID === 'vscode') {
+            // TODO: make sure this is the same for vscodium
+            this.isVSCode = true;
+        }
+
         this.sendResponse(response);
         this.sendEvent(new InitializedEvent());
+        this.sendStdoutLine(`Please send bugs and feature requests here: https://github.com/XavierCooney/mipsy-editor-features :)`);
     }
 
     sendDebugLine(str: string) {
@@ -500,14 +511,35 @@ class MipsSession extends LoggingDebugSession {
                     value: this.renderRegisterValue(register.value),
                     presentationHint: {
                         kind: 'data',
-                        attributes: ['readOnly']
+                        // attributes: ['readOnly']
                     },
                     variablesReference: 0,
                 });
             }
+
+            this.sendMemoryEvent();
         }
 
         this.sendResponse(response);
+    }
+
+    sendMemoryEvent() {
+        if (!this.runtime) {
+            return;
+        }
+
+        const memory = this.runtime.readMemory();
+
+        if (memory && memory.length) {
+            this.sendEvent({
+                event: 'mipsyMemory',
+                body: {
+                    memory
+                },
+                seq: 0,
+                type: 'event'
+            });
+        }
     }
 
     public sendEvent(event: DebugProtocol.Event): void {

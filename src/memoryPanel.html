@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <!-- <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline';"> -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- <title>Hi</title> -->
+    <style>
+        /* html{ font-size:100%; } */
+        h1 {
+            margin-top: 35px;
+        }
+        table {
+            /* font-family: 'Courier New', Courier, monospace; */
+            font-family: var(--vscode-editor-font-family);
+            /* table-layout: fixed; */
+            box-sizing: content-box;
+        }
+        .address-cell {
+            padding-right: 15px;
+        }
+        .data-cell {
+            text-align: center;
+            /* padding-right: 5px; */
+            /* min-width: 2em; */
+        }
+        .word-gap-cell {
+            padding: 5px;
+        }
+        .hex-ascii-gap-cell {
+            padding: 11px;
+        }
+        .data-uninitialised {
+            opacity: 0.5;
+        }
+        .data-non-ascii {
+            color: var(--vscode-errorForeground);
+        }
+        #options-container {
+            display: flex;
+            justify-content: flex-start;
+            align-items: center;
+        }
+        #options-container label {
+            margin-right: 6px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Memory view</h1>
+    <div id="options-container">
+        <label for="dropdown-bytes-per-row">Bytes per row</label>
+        <vscode-dropdown id="dropdown-bytes-per-row">
+            <vscode-option value="4">4</vscode-option>
+            <vscode-option value="8">8</vscode-option>
+            <!-- <vscode-option value="12">12</vscode-option> -->
+            <vscode-option value="16">16</vscode-option>
+            <vscode-option value="32">32</vscode-option>
+        </vscode-dropdown>
+    </div>
+
+    <div id="outer"></div>
+    <pre id="list-data"></pre>
+    <script src="{{{BUNDLE_URI}}}"></script>
+</body>
+</html>

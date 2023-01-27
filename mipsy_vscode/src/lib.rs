@@ -2,7 +2,7 @@ use std::{rc::Rc, collections::HashSet, str::FromStr, fmt::{Display}};
 use serde::{Serialize, Deserialize};
 use mipsy_parser::TaggedFile;
 use wasm_bindgen::prelude::*;
-use mipsy_lib::{compile::{CompilerOptions}, MipsyError, InstSet, Binary, runtime::{SteppedRuntime, RuntimeSyscallGuard}, Runtime, error::runtime::ErrorContext};
+use mipsy_lib::{compile::{CompilerOptions}, MipsyError, InstSet, Binary, runtime::{SteppedRuntime, RuntimeSyscallGuard, PAGE_SIZE}, Runtime, error::runtime::ErrorContext, util::{get_segment, Segment}};
 use mipsy_utils::{MipsyConfig};
 
 
@@ -484,6 +484,37 @@ impl DebugRuntime {
 
     pub fn remove_runtime(&mut self) {
         self.mipsy_runtime = None;
+    }
+
+    pub fn read_memory(&self) -> Vec<u32> {
+        if let Some(Ok(runtime)) = &self.mipsy_runtime {
+            let pages = runtime.timeline().state().pages();
+            let mut pages = pages.iter().filter(
+                |&(&addr, _)| match get_segment(addr) {
+                    Segment::Data => true,
+                    Segment::Stack => true,
+                    _ => false
+                }
+            ).collect::<Vec<_>>();
+            pages.sort_unstable_by_key(
+                |&(&addr, _)| addr
+            );
+
+            let mut result = Vec::with_capacity(pages.len() * (PAGE_SIZE + 1) + 1);
+            result.push(PAGE_SIZE as u32);
+
+            for (&addr, contents) in pages {
+                result.push(addr);
+                result.extend(contents.iter().map(|&val| match val {
+                    mipsy_lib::Safe::Valid(val) => (val as u32) + 1,
+                    mipsy_lib::Safe::Uninitialised => 0
+                }));
+            }
+
+            result
+        } else {
+            vec![]
+        }
     }
 
     pub fn set_breakpoints_from_lines(&mut self, breakpoint_lines: Vec<u32>) -> Vec<u32> {

@@ -14,14 +14,14 @@ export function activate(context: vscode.ExtensionContext) {
     setupDebugButton(context);
     setupMemoryButton(context);
 
-    context.subscriptions.push(vscode.debug.registerDebugAdapterTrackerFactory('*', {
-        createDebugAdapterTracker(session: vscode.DebugSession) {
-            return {
-                onWillReceiveMessage: m => console.log(`> ${JSON.stringify(m, undefined, 2)}`),
-                onDidSendMessage: m => console.log(`< ${JSON.stringify(m, undefined, 2)}`)
-            };
-        }
-    }));
+    // context.subscriptions.push(vscode.debug.registerDebugAdapterTrackerFactory('*', {
+    //     createDebugAdapterTracker(session: vscode.DebugSession) {
+    //         return {
+    //             onWillReceiveMessage: m => console.log(`> ${JSON.stringify(m, undefined, 2)}`),
+    //             onDidSendMessage: m => console.log(`< ${JSON.stringify(m, undefined, 2)}`)
+    //         };
+    //     }
+    // }));
 }
 
 export function deactivate() {
