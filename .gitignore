@@ -6,3 +6,4 @@ node_modules
 mipsy/
 target/
 syntaxes/
+lsp_data.json
