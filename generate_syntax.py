@@ -4,6 +4,9 @@ import json
 import yaml
 import os
 
+for dir in ['syntaxes', 'out']:
+    os.makedirs(dir, exist_ok=True)
+
 
 DIRECTIVES = [ # from mipsy_parser/src/directive.rs
     'text',
