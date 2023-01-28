@@ -3,7 +3,7 @@
   "displayName": "Mipsy Editor Features",
   "description": "",
   "publisher": "xavc",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "repository": {
     "url": "https://github.com/XavierCooney/mipsy-editor-features"
   },
@@ -12,7 +12,8 @@
     "vscode": "^1.74.0"
   },
   "categories": [
-    "Programming Languages", "Debuggers"
+    "Programming Languages",
+    "Debuggers"
   ],
   "activationEvents": [
     "onLanguage:mips",
