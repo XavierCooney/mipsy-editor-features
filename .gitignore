@@ -4,6 +4,5 @@ node_modules
 .vscode-test/
 *.vsix
 mipsy/
-.vscode/
 target/
 syntaxes/
