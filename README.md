@@ -1,6 +1,6 @@
-# mipsy vscode extension thingo (LSP + DAP)
+# Mipsy editor features
 
-WIP.
+Search for `Mipsy Editor Features` in the marketplace to install.
 
 Features:
  - Language server
@@ -28,9 +28,9 @@ TODO:
  - Add other watchpoints?
  - Fancier DAP features
  - Make the code not terrible
- - Publish vscode extension
+ - Use a bundler to reduce extension size
 
-Biggest caveat is that I have no idea how to allow users to specify that a specific file is part of a multi-file program.
+Note: this extension won't work properly with multi-file programs. If anyone can work out how to allow the user to easily specify which make up a multi-file programs please let me know.
 
 To build, roughly:
 ```

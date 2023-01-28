@@ -1,0 +1,32 @@
+<canvas id="canv" style="border: 3px solid black; "></canvas>
+<script>
+/** @type {HTMLCanvasElement} */
+const canv = document.getElementById('canv');
+const ctx = canv.getContext('2d');
+W = 128;
+canv.width = W;
+canv.height = W;
+
+const A = 17;
+
+
+ctx.fillStyle = '#bbb';
+ctx.fillRect(0, 0, W, W);
+
+ctx.beginPath();
+ctx.lineWidth = 8;
+ctx.roundRect(A, A, W - 2 * A, W - 2 * A, 20);
+ctx.strokeStyle = '#020';
+ctx.stroke();
+ctx.fillStyle = '#F8ECF8';
+ctx.fill();
+
+ctx.textAlign = "center";
+ctx.textBaseline= "middle";
+
+ctx.fillStyle = '#000';
+ctx.font = 'bold 80px Arial';
+ctx.fillText('M', W/2, W/2+8);
+
+
+</script>

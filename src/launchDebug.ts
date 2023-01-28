@@ -9,13 +9,13 @@ export function setupDebugButton(context: vscode.ExtensionContext) {
             }
         }
 
-        vscode.window.showInformationMessage('URL ' + file.toString());
+        // vscode.window.showInformationMessage('URL ' + file.toString());
 
         vscode.debug.startDebugging(
             undefined, //vscode.workspace.workspaceFolders[0],
             {
                 type: 'mipsy-1',
-                name: 'session name',
+                name: 'mipsy run/debug',
                 request: 'launch',
                 program: file,
                 console: 'integratedTerminal'

@@ -1,6 +1,7 @@
 .vscode/**
 .vscode-test/**
 src/**
+!src/*.html
 .gitignore
 .yarnrc
 vsc-extension-quickstart.md
@@ -8,3 +9,8 @@ vsc-extension-quickstart.md
 **/.eslintrc.json
 **/*.map
 **/*.ts
+mipsy/
+mipsy_vscode/src/
+target/
+Cargo.lock
+ico.
