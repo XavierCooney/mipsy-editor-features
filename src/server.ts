@@ -108,8 +108,8 @@ documents.onDidClose(e => {
 
 documents.onDidChangeContent(change => {
     const source = change.document.getText();
-    let splitter = source.indexOf('\r') === -1 ? '\n' : '\r';
-    let lines = source.split(splitter);
+    let splitter = source.indexOf('\r\n') === -1 ? '\n' : '\r\n';
+    let lines = source.split(splitter).map(line => line.replace('\r', '').replace('\n', ''));
 
     delete cachedDefinitions[change.document.uri];
     splitSources[change.document.uri] = lines;
@@ -291,6 +291,8 @@ connection.onCompletion((textDocumentPosition: TextDocumentPositionParams): Comp
     const isImmeadiateV0 = /^[ \t]*li[ \t]+\$v0[ \t]*,[ \t]*[0-9]{0,2}$/.test(beforeWithLabelsRemoved);
 
     const allSuggestions = Array.from(staticSuggestions);
+
+    // console.log({before,after,beforeWord,beforeWithLabelsRemoved,isStartOfLine});
 
     definitions.forEach(definition => {
         allSuggestions.push({
