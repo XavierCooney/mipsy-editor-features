@@ -16,49 +16,54 @@ import {
 import { test_compile } from '../mipsy_vscode/pkg/mipsy_vscode';
 
 import {
+    Position,
     TextDocument
 } from 'vscode-languageserver-textdocument';
+
+import { suggestions as staticSuggestions }  from './lsp_data.json';
 
 
 const connection = createConnection(ProposedFeatures.all);
 
 const documents: TextDocuments<TextDocument> = new TextDocuments(TextDocument);
+const splitSources: {[uri: string]: string[]} = {};
+
+interface Definition {
+    type: 'label' | 'constant',
+    line: number,
+    identifier: string
+}
+
+const cachedDefinitions: {[uri: string]: Definition[] | undefined} = {};
+
 
 let hasConfigurationCapability = false;
-let hasWorkspaceFolderCapability = false;
 
 connection.onInitialize((params: InitializeParams) => {
     const capabilities = params.capabilities;
 
     hasConfigurationCapability = !!capabilities?.workspace?.configuration;
-    hasWorkspaceFolderCapability = !!capabilities?.workspace?.workspaceFolders;
+    // capabilities.textDocument?.completion?.completionItem.
 
     const result: InitializeResult = {
         capabilities: {
             textDocumentSync: TextDocumentSyncKind.Incremental,
             completionProvider: {
-                resolveProvider: true
+                triggerCharacters: ['$', '.'],
+                completionItem: {
+                    labelDetailsSupport: true
+                },
+                // resolveProvider: true
             }
         }
     };
-    if (hasWorkspaceFolderCapability) {
-        result.capabilities.workspace = {
-            workspaceFolders: {
-                supported: true
-            }
-        };
-    }
+
     return result;
 });
 
 connection.onInitialized(() => {
     if (hasConfigurationCapability) {
         connection.client.register(DidChangeConfigurationNotification.type, undefined);
-    }
-    if (hasWorkspaceFolderCapability) {
-        connection.workspace.onDidChangeWorkspaceFolders(_event => {
-            connection.console.log('Workspace folder change event received.');
-        });
     }
 });
 
@@ -96,10 +101,19 @@ function getDocumentSettings(resource: string): Thenable<MipsSettings> {
 }
 
 documents.onDidClose(e => {
+    delete splitSources[e.document.uri];
+    delete cachedDefinitions[e.document.uri];
     documentSettings.delete(e.document.uri);
 });
 
 documents.onDidChangeContent(change => {
+    const source = change.document.getText();
+    let splitter = source.indexOf('\r') === -1 ? '\n' : '\r';
+    let lines = source.split(splitter);
+
+    delete cachedDefinitions[change.document.uri];
+    splitSources[change.document.uri] = lines;
+
     validateTextDocument(change.document);
 });
 
@@ -146,7 +160,6 @@ async function validateTextDocument(textDocument: TextDocument): Promise<void> {
                 displayColumn += c === '\t' ? tabsSize : 1;
                 actualColumn++;
 
-                console.log(displayColumn, actualColumn);
                 if (displayColumn === column) {
                     return actualColumn;
                 }
@@ -160,7 +173,7 @@ async function validateTextDocument(textDocument: TextDocument): Promise<void> {
     }
 
     for (let err of response.errors) {
-        console.log(err);
+        // console.log(err);
         // just stick non localised errors at the start
         const lineNum = err.localised ? err.line - 1 : 0;
         // const lineNum = err.localised ? err.line - 1 : textDocument.lineCount - 1;
@@ -196,7 +209,7 @@ async function validateTextDocument(textDocument: TextDocument): Promise<void> {
             source: 'mipsy'
         };
 
-        console.log(diagnostic);
+        // console.log(diagnostic);
         diagnostics.push(diagnostic);
     };
     connection.sendDiagnostics({ uri: textDocument.uri, diagnostics });
@@ -206,11 +219,195 @@ connection.onDidChangeWatchedFiles(_change => {
     connection.console.log('Received a file change event');
 });
 
-connection.onCompletion(
-    (_textDocumentPosition: TextDocumentPositionParams): CompletionItem[] => {
+function getDefinitions(uri: string): Definition[] {
+    const cachedValue = cachedDefinitions[uri];
+    if (cachedValue) {
+        return cachedValue;
+    }
+
+    const lines = splitSources[uri] || [];
+    const definitions: Definition[] = [];
+
+    lines.forEach((line, lineNum) => {
+        const trimmed = line.split('#')[0].trim();
+        if (trimmed === '') {
+            return;
+        }
+
+        let lineIter = line;
+
+        while (true) {
+            const match = /^[ \t]*([a-zA-Z_0-9.]+)[ \t]*:(.*)$/.exec(lineIter);
+            if (match === null) {
+                break;
+            }
+            definitions.push({
+                identifier: match[1],
+                line: lineNum,
+                type: 'label'
+            });
+            lineIter = match[2];
+        }
+
+        while (true) {
+            const match = /^[ \t]*([a-zA-Z_0-9.]+)[ \t]*=(.*)$/.exec(lineIter);
+            if (match === null) {
+                break;
+            }
+            definitions.push({
+                identifier: match[1],
+                line: lineNum,
+                type: 'constant'
+            });
+            lineIter = match[2];
+        }
+
+    });
+
+    return (cachedDefinitions[uri] = definitions);
+}
+
+connection.onCompletion((textDocumentPosition: TextDocumentPositionParams): CompletionItem[] => {
+    const lineNum = textDocumentPosition.position.line;
+    const colNum = textDocumentPosition.position.character;
+    const uri = textDocumentPosition.textDocument.uri;
+    const line = (splitSources[uri] || [])[lineNum] || '';
+    const definitions = getDefinitions(uri);
+
+    const before = line.slice(0, colNum);
+    const after = line.slice(colNum);
+
+    if (before.indexOf('#') !== -1) {
+        // probably in comment - although the # might be in a string/character literal
         return [];
     }
-);
+
+    const beforeWord = (/\$?[a-zA-z.0-9]*$/.exec(before) || [''])[0] || '';
+    const beforeWithLabelsRemoved = before.replace(/[A-Za-z_][A-Za-z_0-9.]*[ \t]*:/g, '');
+
+    const isStartOfLine = /^[ \t]*$/.test(
+        beforeWithLabelsRemoved.slice(0, beforeWithLabelsRemoved.length - beforeWord.length)
+    );
+    const isImmeadiateV0 = /^[ \t]*li[ \t]+\$v0[ \t]*,[ \t]*[0-9]{0,2}$/.test(beforeWithLabelsRemoved);
+
+    const allSuggestions = Array.from(staticSuggestions);
+
+    definitions.forEach(definition => {
+        allSuggestions.push({
+            label: definition.identifier,
+            type: definition.type,
+        });
+    });
+
+    const result: CompletionItem[] = [];
+
+    allSuggestions.forEach(suggestion => {
+        if (!isStartOfLine && suggestion.type === 'instruction') {
+            return;
+        }
+
+        if (!isStartOfLine && suggestion.type === 'directive') {
+            return;
+        }
+
+        if (suggestion.type === 'syscall_num' && !isImmeadiateV0) {
+            return;
+        }
+
+        let sortLevel = 'c';
+
+        if (suggestion.type === 'register') {
+            sortLevel = 'd';
+        }
+
+        if (suggestion.type === 'register' && beforeWord.startsWith('$') && !isStartOfLine) {
+            sortLevel = 'a';
+        }
+
+        if (suggestion.type === 'directive' && beforeWord.startsWith('.') && isStartOfLine) {
+            sortLevel = 'a';
+        }
+
+        if (suggestion.type === 'directive' && !isStartOfLine) {
+            sortLevel = 'e';
+        }
+
+        if (suggestion.type === 'syscall_num') {
+            sortLevel = `a${suggestion.syscall_common ? 'a' : 'b'}$`;
+        }
+
+        const item: CompletionItem = {
+            label: suggestion.label,
+            kind: CompletionItemKind.Function,
+            filterText: suggestion.label,
+            sortText: `${sortLevel}${suggestion.sort_data || ''}${suggestion.label}`,
+            data: {}
+        };
+
+        if (suggestion.type === 'instruction') {
+            item.kind = CompletionItemKind.Function;
+        } else if (suggestion.type === 'constant') {
+            item.kind = CompletionItemKind.Constant;
+        } else if (suggestion.type === 'label') {
+            item.kind = CompletionItemKind.Reference;
+        } else if (suggestion.type === 'directive') {
+            item.kind = CompletionItemKind.Keyword;
+        } else if (suggestion.type === 'register') {
+            item.kind = CompletionItemKind.Variable;
+        } else if (suggestion.type === 'syscall_num') {
+            item.kind = CompletionItemKind.Event;
+        } else {
+            console.log(`Don't know what kind for ${suggestion.type}`);
+        }
+
+        if (suggestion.docs && suggestion.docs !== 'todo') {
+            item.labelDetails = {
+                description: suggestion.docs
+            };
+            if (suggestion.type === 'syscall_num') {
+                item.documentation = `syscall: ${suggestion.docs}`;
+            } else {
+                item.documentation = suggestion.docs;
+            }
+        }
+
+        let matchingLength = 0;
+        while (matchingLength < Math.min(beforeWord.length, suggestion.label.length)) {
+            if (beforeWord[matchingLength] === suggestion.label[matchingLength]) {
+                matchingLength++;
+            } else {
+                break;
+            }
+        }
+
+        const appendTab = isStartOfLine && suggestion.autoIndent;
+
+        if (!/[a-zA-Z]/.test(suggestion.label[0])) {
+            const editPosition: Position = {
+                line: lineNum,
+                character: colNum
+            };
+            item.textEdit = {
+                newText: suggestion.label.slice(matchingLength) + (appendTab ? '\t' : ''),
+                range: {
+                    start: {
+                        line: lineNum,
+                        character: colNum - (beforeWord.length - matchingLength)
+                    },
+                    end: editPosition
+                },
+            };
+        } else {
+            item.insertText = suggestion.label + (appendTab ? '\t' : '');
+        }
+
+        result.push(item);
+    });
+
+    // return [{label:"Text",kind:CompletionItemKind.Text},{label:"Method",kind:CompletionItemKind.Method},{label:"Function",kind:CompletionItemKind.Function},{label:"Constructor",kind:CompletionItemKind.Constructor},{label:"Field",kind:CompletionItemKind.Field},{label:"Variable",kind:CompletionItemKind.Variable},{label:"Class",kind:CompletionItemKind.Class},{label:"Interface",kind:CompletionItemKind.Interface},{label:"Module",kind:CompletionItemKind.Module},{label:"Property",kind:CompletionItemKind.Property},{label:"Unit",kind:CompletionItemKind.Unit},{label:"Value",kind:CompletionItemKind.Value},{label:"Enum",kind:CompletionItemKind.Enum},{label:"Keyword",kind:CompletionItemKind.Keyword},{label:"Snippet",kind:CompletionItemKind.Snippet},{label:"Color",kind:CompletionItemKind.Color},{label:"File",kind:CompletionItemKind.File},{label:"Reference",kind:CompletionItemKind.Reference},{label:"Folder",kind:CompletionItemKind.Folder},{label:"EnumMember",kind:CompletionItemKind.EnumMember},{label:"Constant",kind:CompletionItemKind.Constant},{label:"Struct",kind:CompletionItemKind.Struct},{label:"Event",kind:CompletionItemKind.Event},{label:"Operator",kind:CompletionItemKind.Operator},{label:"TypeParameter",kind:CompletionItemKind.TypeParameter}];
+
+    return result;
+});
 
 
 documents.listen(connection);
