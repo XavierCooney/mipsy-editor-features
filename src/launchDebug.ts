@@ -61,6 +61,6 @@ export function setupDebugButton(context: vscode.ExtensionContext) {
 
         set.clear();
 
-        vscode.window.showErrorMessage(`Debug session must be reloaded for ${change.document.fileName}!`);
+        vscode.window.showErrorMessage(`Debug session must be reloaded before changes take effect!`);
     }));
 }

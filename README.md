@@ -1,6 +1,6 @@
 # Mipsy editor features
 
-To install for the vscode, search for `Mipsy Editor Features` in the marketplace and click install.
+To install for the vscode, search for `Mipsy Editor Features` in the marketplace and click install. Please report bugs/feedback/feature requests [on GitHub](https://github.com/XavierCooney/mipsy-editor-features/issues).
 
 Features:
  - A language server

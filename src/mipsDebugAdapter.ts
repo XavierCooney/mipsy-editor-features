@@ -19,6 +19,7 @@ class MipsRuntime {
     public inputNeeded: boolean;
     private resumeOnInput: boolean;
     public runningReverse: boolean;
+    private isAtExit: boolean = false;
 
     constructor(readonly source: string, readonly filename: string, readonly path: string, readonly session: MipsSession) {
         this.runtime = make_new_runtime(
@@ -62,6 +63,13 @@ class MipsRuntime {
     }
 
     step(): boolean {
+        if (this.isAtExit) {
+            this.session.sendStdoutLine('exiting...');
+            this.session.sendEvent(new TerminatedEvent());
+            this.runtime.remove_runtime();
+            return false;
+        }
+
         const result = this.runtime.step_debug();
 
         if (result === 'StepSuccess') {
@@ -78,9 +86,8 @@ class MipsRuntime {
 
                 return true;
             } else if (syscallGuard === 'exit') {
-                this.session.sendStdoutLine('syscall exit: exiting...');
-                this.session.sendEvent(new TerminatedEvent());
-                this.runtime.remove_runtime();
+                this.session.sendStdoutLine('syscall exit: press continue/next/stop to exit');
+                this.isAtExit = true;
                 return false;
             } else if (syscallGuard === 'breakpoint') {
                 this.runtime.acknowledge_breakpoint();
@@ -120,6 +127,7 @@ class MipsRuntime {
     }
 
     stepBack() {
+        this.isAtExit = false;
         this.inputNeeded = false;
         return this.runtime.step_back(this.autoRunning && this.runningReverse);
     }
