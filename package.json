@@ -20,6 +20,12 @@
     "onDebug:mipsy-1"
   ],
   "main": "./out/extension.js",
+  "capabilities": {
+    "virtualWorkspaces": {
+      "supported": "limited",
+      "description": "LSP works, debugger not currently but will soon"
+    }
+  },
   "contributes": {
     "breakpoints": [
       {

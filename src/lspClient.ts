@@ -27,7 +27,7 @@ export function startLSP(context: vscode.ExtensionContext) {
 
     let clientOptions: LanguageClientOptions = {
         documentSelector: [{
-            scheme: 'file', language: 'mips'
+            language: 'mips'
         }]
     };
 
