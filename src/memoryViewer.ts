@@ -59,11 +59,11 @@ export function setupMemoryButton(context: vscode.ExtensionContext) {
     }));
 
     context.subscriptions.push(vscode.debug.onDidReceiveDebugSessionCustomEvent(e => {
-        if (e.event !== 'mipsyMemory') {
+        if (e.session.type !== 'mipsy-1') {
             return;
         }
 
-        if (e.session.type !== 'mipsy-1') {
+        if (e.event !== 'mipsyMemory') {
             return;
         }
 

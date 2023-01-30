@@ -3,7 +3,7 @@
   "displayName": "Mipsy Editor Features",
   "description": "",
   "publisher": "xavc",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "repository": {
     "url": "https://github.com/XavierCooney/mipsy-editor-features"
   },
@@ -17,7 +17,7 @@
   ],
   "activationEvents": [
     "onLanguage:mips",
-    "onDebug"
+    "onDebug:mipsy-1"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -115,6 +115,18 @@
         {
           "command": "mips.debug.viewMemory",
           "when": "inDebugMode && debugType == 'mipsy-1'"
+        }
+      ]
+    },
+    "views": {
+      "debug": [
+        {
+          "type": "webview",
+          "id": "mips.xavc.io",
+          "name": "MIPS I/O",
+          "when": "inDebugMode && debugType == 'mipsy-1'",
+          "initialSize": 200,
+          "visibility": "visible"
         }
       ]
     }

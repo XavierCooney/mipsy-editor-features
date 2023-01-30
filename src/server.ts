@@ -109,7 +109,7 @@ documents.onDidClose(e => {
 documents.onDidChangeContent(change => {
     const source = change.document.getText();
     let splitter = source.indexOf('\r\n') === -1 ? '\n' : '\r\n';
-    let lines = source.split(splitter).map(line => line.replace('\r', '').replace('\n', ''));
+    let lines = source.split(splitter).map(line => line.replaceAll('\r', '').replaceAll('\n', ''));
 
     delete cachedDefinitions[change.document.uri];
     splitSources[change.document.uri] = lines;

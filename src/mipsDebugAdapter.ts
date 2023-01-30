@@ -80,9 +80,35 @@ class MipsRuntime {
             if (syscallGuard === 'print') {
                 const printResult = this.runtime.do_print();
 
-                if (printResult.length) {
-                    this.session.sendStdoutLine('syscall ' + printResult);
+                const match = /^([^:]*): (.*)$/s.exec(printResult) || [];
+                const printType = match[1];
+                const printContents = match[2];
+
+                let sanitisedContents = printContents;
+                if (printType === 'print_string') {
+                    sanitisedContents = JSON.stringify(printContents);
+                } else if (printType === 'print_char') {
+                    if (printContents === '"') {
+                        sanitisedContents = `'"'`;
+                    } else if (printContents === "'") {
+                        sanitisedContents = `'\\''`;
+                    } else {
+                        sanitisedContents = JSON.stringify(printContents).replaceAll(`"`, `'`);
+                    }
                 }
+
+                if (printResult.length) {
+                    this.session.sendStdoutLine(`syscall ${printType}: ${sanitisedContents}`);
+                }
+
+                this.session.sendEvent({
+                    event: 'mipsyOutput',
+                    body: {
+                        charCodes: [...printContents].map(c => c.charCodeAt(0))
+                    },
+                    seq: 0,
+                    type: 'event'
+                });
 
                 return true;
             } else if (syscallGuard === 'exit') {

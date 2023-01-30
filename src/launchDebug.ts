@@ -7,6 +7,11 @@ export function setupDebugButton(context: vscode.ExtensionContext) {
             return;
         }
 
+        if (vscode.debug.activeDebugSession) {
+            vscode.window.showErrorMessage(`There's already an active debug session!`);
+            return;
+        }
+
         // for (let doc of vscode.workspace.textDocuments) {
         //     if (doc.uri.toString() === file.toString()) {
         //         doc.save();
@@ -25,6 +30,8 @@ export function setupDebugButton(context: vscode.ExtensionContext) {
             },
             undefined
         );
+
+        // vscode.window.
     }));
 
     const uriToSessionIds: {[uri: string]: Set<string>} = Object.create(null);

@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<style>
+body {
+    font-family: var(--vscode-editor-font-family);
+}
+#output {
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+.line:empty::after {
+    content: '\200B';
+    visibility: hidden;
+}
+.newline {
+    user-select: none;
+}
+</style>
+<title>HTML Title</title>
+</head>
+<body>
+<div id="output"></div>
+<script>
+
+function handleCharCodes(codes) {
+    const wasAtTop = window.innerHeight + window.scrollY + 40 >= document.body.offsetHeight;
+
+    let lastLineDiv = document.getElementById('output').lastElementChild;
+
+    if (!lastLineDiv) {
+        lastLineDiv = document.createElement('div');
+        lastLineDiv.classList.add('line');
+        document.getElementById('output').appendChild(lastLineDiv);
+    }
+
+    for (let code of codes) {
+        const c = String.fromCharCode(code);
+
+        if (c === '\n') {
+            const newLineSpan = document.createElement('span');
+            newLineSpan.classList.add('newline');
+            newLineSpan.innerText = '⮰';
+            newLineSpan.title = '(newline)';
+            lastLineDiv.appendChild(newLineSpan);
+
+            lastLineDiv = document.createElement('div');
+            lastLineDiv.classList.add('line');
+            document.getElementById('output').appendChild(lastLineDiv);
+        } else {
+            lastLineDiv.innerText += c;
+        }
+    }
+
+    if (wasAtTop) {
+        window.scrollTo(0, document.body.scrollHeight);
+    }
+}
+
+window.addEventListener('message', e => {
+    if (e.data.command === 'full') {
+        document.getElementById('output').innerHTML = ``;
+    }
+
+    handleCharCodes(e.data.body);
+});
+
+
+const vscode = acquireVsCodeApi();
+vscode.postMessage({
+    command: 'req_full'
+});
+</script>
+</body>
+</html>
