@@ -10,14 +10,15 @@ import {
     CompletionItemKind,
     TextDocumentPositionParams,
     TextDocumentSyncKind,
-    InitializeResult
+    InitializeResult,
+    Location
 } from 'vscode-languageserver/node';
 
 import { test_compile } from '../mipsy_vscode/pkg/mipsy_vscode';
 
 import {
     Position,
-    TextDocument
+    TextDocument,
 } from 'vscode-languageserver-textdocument';
 
 import { suggestions as staticSuggestions }  from './lsp_data.json';
@@ -54,7 +55,8 @@ connection.onInitialize((params: InitializeParams) => {
                     labelDetailsSupport: true
                 },
                 // resolveProvider: true
-            }
+            },
+            definitionProvider: {}
         }
     };
 
@@ -282,7 +284,7 @@ connection.onCompletion((textDocumentPosition: TextDocumentPositionParams): Comp
         return [];
     }
 
-    const beforeWord = (/\$?[a-zA-z.0-9]*$/.exec(before) || [''])[0] || '';
+    const beforeWord = (/\$?[a-zA-Z.0-9]*$/.exec(before) || [''])[0] || '';
     const beforeWithLabelsRemoved = before.replace(/[A-Za-z_][A-Za-z_0-9.]*[ \t]*:/g, '');
 
     const isStartOfLine = /^[ \t]*$/.test(
@@ -408,6 +410,53 @@ connection.onCompletion((textDocumentPosition: TextDocumentPositionParams): Comp
 
     // return [{label:"Text",kind:CompletionItemKind.Text},{label:"Method",kind:CompletionItemKind.Method},{label:"Function",kind:CompletionItemKind.Function},{label:"Constructor",kind:CompletionItemKind.Constructor},{label:"Field",kind:CompletionItemKind.Field},{label:"Variable",kind:CompletionItemKind.Variable},{label:"Class",kind:CompletionItemKind.Class},{label:"Interface",kind:CompletionItemKind.Interface},{label:"Module",kind:CompletionItemKind.Module},{label:"Property",kind:CompletionItemKind.Property},{label:"Unit",kind:CompletionItemKind.Unit},{label:"Value",kind:CompletionItemKind.Value},{label:"Enum",kind:CompletionItemKind.Enum},{label:"Keyword",kind:CompletionItemKind.Keyword},{label:"Snippet",kind:CompletionItemKind.Snippet},{label:"Color",kind:CompletionItemKind.Color},{label:"File",kind:CompletionItemKind.File},{label:"Reference",kind:CompletionItemKind.Reference},{label:"Folder",kind:CompletionItemKind.Folder},{label:"EnumMember",kind:CompletionItemKind.EnumMember},{label:"Constant",kind:CompletionItemKind.Constant},{label:"Struct",kind:CompletionItemKind.Struct},{label:"Event",kind:CompletionItemKind.Event},{label:"Operator",kind:CompletionItemKind.Operator},{label:"TypeParameter",kind:CompletionItemKind.TypeParameter}];
 
+    return result;
+});
+
+function getWordAtPosition(params: TextDocumentPositionParams) {
+    const lineNum = params.position.line;
+    const colNum = params.position.character;
+    const uri = params.textDocument.uri;
+    const line = (splitSources[uri] || [])[lineNum] || '';
+
+    const before = line.slice(0, colNum);
+    const after = line.slice(colNum);
+
+    const beforeWord = (/\$?[a-zA-Z.0-9]*$/.exec(before) || [''])[0] || '';
+    const afterWord = (/^\$?[a-zA-Z.0-9]*/.exec(after) || [''])[0] || '';
+
+    // console.log({beforeWord, afterWord});
+
+    return beforeWord + afterWord;
+}
+
+connection.onDefinition(params => {
+    const uri = params.textDocument.uri;
+    const definitions = getDefinitions(uri);
+    const word = getWordAtPosition(params);
+
+    const result: Location[] = [];
+
+    for (let definition of definitions) {
+        if (definition.identifier === word) {
+            const line = definition.line;
+
+            result.push({
+                range: {
+                    start: {
+                        line,
+                        character: 0
+                    },
+                    end: {
+                        line,
+                        character: Number.MAX_SAFE_INTEGER
+                    }
+                },
+                uri
+            });
+        }
+    }
+    // console.log({result});
     return result;
 });
 
