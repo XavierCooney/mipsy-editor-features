@@ -120,6 +120,13 @@ documents.onDidChangeContent(change => {
 });
 
 async function validateTextDocument(textDocument: TextDocument): Promise<void> {
+    if (textDocument.uri.startsWith('mips-decompile:')) {
+        connection.sendDiagnostics({
+            uri: textDocument.uri, diagnostics: []
+        });
+        return;
+    }
+
     connection.console.log(`validating ${textDocument.uri}...`);
 
     const settings = await getDocumentSettings(textDocument.uri);
@@ -214,6 +221,7 @@ async function validateTextDocument(textDocument: TextDocument): Promise<void> {
         // console.log(diagnostic);
         diagnostics.push(diagnostic);
     };
+
     connection.sendDiagnostics({ uri: textDocument.uri, diagnostics });
 }
 
