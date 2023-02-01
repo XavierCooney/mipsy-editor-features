@@ -3,7 +3,7 @@
   "displayName": "Mipsy Editor Features",
   "description": "",
   "publisher": "xavc",
-  "version": "0.2.0",
+  "version": "0.3.1",
   "repository": {
     "url": "https://github.com/XavierCooney/mipsy-editor-features"
   },
@@ -130,6 +130,7 @@
           "type": "webview",
           "id": "mips.xavc.io",
           "name": "MIPS I/O",
+          "contextualTitle": "[MIPS DEBUG]",
           "when": "inDebugMode && debugType == 'mipsy-1'",
           "initialSize": 200,
           "visibility": "visible"
@@ -155,6 +156,7 @@
     "@typescript-eslint/parser": "^5.45.0",
     "@vscode/test-electron": "^2.2.0",
     "browserify": "^17.0.0",
+    "@types/vscode-webview": "^1.57.1",
     "eslint": "^8.28.0",
     "esmify": "^2.1.1",
     "glob": "^8.0.3",
@@ -165,7 +167,6 @@
     "uglify-js": "^3.17.4"
   },
   "dependencies": {
-    "@types/vscode-webview": "^1.57.1",
     "@vscode/debugadapter": "^1.58.0",
     "@vscode/webview-ui-toolkit": "^1.2.1",
     "vscode-languageclient": "^8.0.2",
