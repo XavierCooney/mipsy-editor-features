@@ -425,7 +425,30 @@ class MipsSession extends LoggingDebugSession {
     }
 
     protected stepInRequest(response: DebugProtocol.StepInResponse, args: DebugProtocol.StepInArguments, request?: DebugProtocol.Request | undefined): void {
-        this.runtime?.step();
+        if (this.runtime) {
+            const oldPc = this.runtime.getPC();
+            while (this.runtime.step()) {
+                const newPc = this.runtime.getPC();
+                if (newPc !== oldPc && newPc !== undefined) {
+                    break;
+                }
+            }
+        }
+
+        this.sendResponse(response);
+        this.sendEvent(new StoppedEvent('step', THREAD_ID));
+    }
+
+    protected stepOutRequest(response: DebugProtocol.StepOutResponse, args: DebugProtocol.StepOutArguments, request?: DebugProtocol.Request | undefined): void {
+        if (this.runtime) {
+            const oldPc = this.runtime.getPC();
+            while (this.runtime.stepBack()) {
+                const newPc = this.runtime.getPC();
+                if (newPc !== oldPc && newPc !== undefined) {
+                    break;
+                }
+            }
+        }
         this.sendResponse(response);
         this.sendEvent(new StoppedEvent('step', THREAD_ID));
     }
@@ -435,7 +458,6 @@ class MipsSession extends LoggingDebugSession {
             const oldLine = this.runtime.getLineNum();
             while (this.runtime.stepBack()) {
                 const newLine = this.runtime.getLineNum();
-                // this.sendDebugLine(`old ${oldLine}, new ${newLine}, pc ${this.runtime.getPC()}`);
                 if (newLine !== oldLine && newLine !== undefined) {
                     break;
                 }
