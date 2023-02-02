@@ -2,7 +2,7 @@ use std::{rc::Rc, collections::HashSet, str::FromStr, fmt::{Display}};
 use serde::{Serialize, Deserialize};
 use mipsy_parser::TaggedFile;
 use wasm_bindgen::prelude::*;
-use mipsy_lib::{compile::{CompilerOptions}, MipsyError, InstSet, Binary, runtime::{SteppedRuntime, RuntimeSyscallGuard, PAGE_SIZE}, Runtime, error::runtime::ErrorContext, util::{get_segment, Segment}};
+use mipsy_lib::{compile::{CompilerOptions}, MipsyError, InstSet, Binary, runtime::{SteppedRuntime, RuntimeSyscallGuard, PAGE_SIZE}, Runtime, error::runtime::ErrorContext, util::{get_segment, Segment}, TEXT_BOT, KTEXT_BOT, Safe, decompile::decompile_inst_into_parts};
 use mipsy_utils::{MipsyConfig};
 
 
@@ -166,6 +166,15 @@ pub enum StepResult {
     AtSyscallGuard, StepSuccess, NoRuntime, StepError(String)
 }
 
+#[derive(Serialize, Deserialize)]
+pub struct DisassembleResponse {
+    address: u32,
+    instruction: String,
+    line_num: Option<u32>,
+    instruction_bytes: Option<String>,
+    symbols: Option<String>
+}
+
 #[wasm_bindgen]
 impl DebugRuntime {
     pub fn step_debug(&mut self) -> Result<JsValue, JsValue> {
@@ -213,10 +222,85 @@ impl DebugRuntime {
         Ok(serde_wasm_bindgen::to_value(&step_result)?)
     }
 
-    pub fn decompile(&self) -> String {
-        let iset = &mipsy_instructions::inst_set();
+    // pub fn decompile(&self) -> String {
+    //     let iset = &mipsy_instructions::inst_set();
 
-        mipsy_lib::decompile(iset, &self.binary)
+    //     mipsy_lib::decompile(iset, &self.binary)
+    // }
+
+    pub fn perform_disassembly(&self, start_address: u32, count: u32) -> Result<JsValue, JsValue> {
+        let mut response: Vec<DisassembleResponse> = Default::default();
+        let binary = &self.binary;
+        let iset = &self.iset;
+
+        for i in 0..count {
+            let address = start_address + 4 * i;
+            let word = (|| {
+                let address = address.try_into().ok()?;
+                let line_num = self.binary.line_numbers.get(&address).map(
+                    |&(_, line_num)| line_num
+                );
+
+                let (index, vec) = match get_segment(address) {
+                    Segment::Text => Some((address - TEXT_BOT, &binary.text)),
+                    Segment::KText => Some((address - KTEXT_BOT, &binary.ktext)),
+                    _ => None
+                }?;
+                let index: usize = index.try_into().ok()?;
+                // let bytes = vec.get(index..index+4)?;
+                let byte1 = *vec.get(index + 0)?;
+                let byte2 = *vec.get(index + 1)?;
+                let byte3 = *vec.get(index + 2)?;
+                let byte4 = *vec.get(index + 3)?;
+                match (|| {
+                    Some(u32::from_le_bytes([
+                        *byte1.as_option()?, *byte2.as_option()?,
+                        *byte3.as_option()?, *byte4.as_option()?,
+                    ]))
+                })() {
+                    Some(value) => Some((address, line_num, Safe::Valid(value))),
+                    None => Some((address, line_num, Safe::Uninitialised))
+                }
+            })();
+
+            response.push(match word {
+                Some((text_addr, line_num, Safe::Valid(word))) => {
+                    let decompiled = decompile_inst_into_parts(
+                        binary, iset, word, text_addr
+                    );
+                    DisassembleResponse {
+                        address: address,
+                        instruction: std::format!(
+                            "{:6} {}",
+                            decompiled.inst_name.unwrap_or("[unknown instruction]".into()),
+                            decompiled.arguments.join(", ")
+                        ),
+                        line_num: line_num,
+                        instruction_bytes: Some(std::format!(
+                            "0x{:08X}",
+                            word
+                        )),
+                        symbols: None
+                    }
+                },
+                Some((_, line_num, Safe::Uninitialised)) => DisassembleResponse {
+                    address: address,
+                    instruction: "[uninitialised]".into(),
+                    line_num: line_num,
+                    instruction_bytes: Some("  ????????".into()),
+                    symbols: None
+                },
+                None => DisassembleResponse {
+                    address: address,
+                    instruction: "".into(),
+                    line_num: None,
+                    instruction_bytes: None,
+                    symbols: None
+                }
+            });
+        }
+
+        Ok(serde_wasm_bindgen::to_value(&response)?)
     }
 
     pub fn get_syscall_type(&self) -> String {
@@ -409,6 +493,10 @@ impl DebugRuntime {
             self.registers.hi = state.read_hi().ok();
             self.registers.lo = state.read_lo().ok();
         }
+    }
+
+    pub fn get_pc(&self) -> Option<u32> {
+        return self.registers.pc;
     }
 
     pub fn dump_registers(&self) -> Vec<i32> {

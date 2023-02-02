@@ -214,9 +214,12 @@ class MipsRuntime {
         return result;
     }
 
+    disassemble(start: number, count: number) {
+        return this.runtime.perform_disassembly(start >>> 0, count >>> 0);
+    }
+
     getPC() {
-        const arrayData = Array.from(this.runtime.dump_registers());
-        return arrayData[arrayData.length - 1];
+        return this.runtime.get_pc();
     }
 
     readMemory() {
@@ -252,6 +255,10 @@ class MipsRuntime {
             return 'error';
         }
     }
+}
+
+function numTo32BitHex(value: number) {
+    return '0x' + value.toString(16).padStart(8, '0').toUpperCase();
 }
 
 // TODO: this is structured incredibly badly
@@ -447,6 +454,7 @@ class MipsSession extends LoggingDebugSession {
         // this is a ui hack, but use the repl as the input box. in vscode it makes sense
         if (!args.context || args.context !== 'repl') {
             this.sendResponse(response);
+            return;
         }
 
         let result = '';
@@ -473,9 +481,32 @@ class MipsSession extends LoggingDebugSession {
                 name: '',
                 line: this.runtime?.getLineNum() || 0,
                 column: 1,
-                source: this.getSource()
+                source: this.getSource(),
+                instructionPointerReference: numTo32BitHex(this.runtime?.getPC() || 0)
             }]
         };
+        this.sendResponse(response);
+    }
+
+    protected disassembleRequest(response: DebugProtocol.DisassembleResponse, args: DebugProtocol.DisassembleArguments, request?: DebugProtocol.Request | undefined): void {
+        let start = parseInt(args.memoryReference) + (args.instructionOffset || 0) * 4 + (args.offset || 0);
+
+        response.body = {
+            instructions: this.runtime?.disassemble(start, args.instructionCount)?.map((part: any) => {
+                return {
+                    address: numTo32BitHex(part.address),
+                    instruction: part.instruction,
+                    column: 1,
+                    endColumn: Number.MAX_SAFE_INTEGER,
+                    line: part.line_num,
+                    endLine: part.line_num,
+                    location: this.getSource(),
+                    instructionBytes: part.instruction_bytes,
+                    symbol: part.symbols
+                };
+            })
+        };
+
         this.sendResponse(response);
     }
 
@@ -528,7 +559,7 @@ class MipsSession extends LoggingDebugSession {
             if (value < 0) {
                 value += (1 << 30) * 4;
             }
-            return '0x' + value.toString(16).padStart(8, '0').toUpperCase();
+            return numTo32BitHex(value);
         }
     }
 
