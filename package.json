@@ -3,7 +3,7 @@
   "displayName": "Mipsy Editor Features",
   "description": "",
   "publisher": "xavc",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "repository": {
     "url": "https://github.com/XavierCooney/mipsy-editor-features"
   },
@@ -102,6 +102,18 @@
         "title": "Memory",
         "command": "mips.debug.viewMemory",
         "enablement": "inDebugMode && debugType == 'mipsy-1'"
+      },
+      {
+        "category": "MIPS",
+        "title": "Send selection to MIPS input",
+        "command": "mipsy.debug.sendSelectionToInput",
+        "enablement": "inDebugMode && debugType == 'mipsy-1' && editorHasSelection"
+      },
+      {
+        "category": "MIPS",
+        "title": "Send file to MIPS input",
+        "command": "mipsy.debug.sendFileToInput",
+        "enablement": "inDebugMode && debugType == 'mipsy-1'"
       }
     ],
     "menus": {
@@ -120,6 +132,18 @@
       "debug/toolBar": [
         {
           "command": "mips.debug.viewMemory",
+          "when": "inDebugMode && debugType == 'mipsy-1'"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "mipsy.debug.sendSelectionToInput",
+          "when": "inDebugMode && debugType == 'mipsy-1'"
+        }
+      ],
+      "editor/title/context": [
+        {
+          "command": "mipsy.debug.sendFileToInput",
           "when": "inDebugMode && debugType == 'mipsy-1'"
         }
       ]

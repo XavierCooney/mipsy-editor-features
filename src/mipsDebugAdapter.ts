@@ -1,11 +1,12 @@
 import {
-    LoggingDebugSession, OutputEvent, LoadedSourceEvent,
+    DebugSession, OutputEvent, LoadedSourceEvent,
     InitializedEvent, StoppedEvent, TerminatedEvent, InvalidatedEvent, ContinuedEvent
 } from '@vscode/debugadapter';
 import {
     DebugProtocol
 } from '@vscode/debugprotocol';
 import { make_new_runtime, DebugRuntime } from '../mipsy_vscode/pkg/mipsy_vscode';
+import { ScanBuffer } from './scanBuffer';
 const { promises: fs } = require("fs");
 
 // const rand = Math.floor(Math.random() * 9000) + 1000;
@@ -21,7 +22,7 @@ class MipsRuntime {
     public runningReverse: boolean;
     private isAtExit: boolean = false;
 
-    constructor(readonly source: string, readonly filename: string, readonly path: string, readonly session: MipsSession) {
+    constructor(readonly source: string, readonly filename: string, readonly path: string, readonly session: MipsSession, private readonly scanBuffer: ScanBuffer) {
         this.runtime = make_new_runtime(
             source, filename
         );
@@ -60,6 +61,17 @@ class MipsRuntime {
     runReverse() {
         this.runningReverse = true;
         this.autoRunning = true;
+    }
+
+    sendToIOView(str: string) {
+        this.session.sendEvent({
+            event: 'mipsyOutput',
+            body: {
+                charCodes: [...str].map(c => c.charCodeAt(0))
+            },
+            seq: 0,
+            type: 'event'
+        });
     }
 
     step(): boolean {
@@ -101,14 +113,7 @@ class MipsRuntime {
                     this.session.sendStdoutLine(`syscall ${printType}: ${sanitisedContents}`);
                 }
 
-                this.session.sendEvent({
-                    event: 'mipsyOutput',
-                    body: {
-                        charCodes: [...printContents].map(c => c.charCodeAt(0))
-                    },
-                    seq: 0,
-                    type: 'event'
-                });
+                this.sendToIOView(printContents);
 
                 return true;
             } else if (syscallGuard === 'exit') {
@@ -119,6 +124,39 @@ class MipsRuntime {
                 this.runtime.acknowledge_breakpoint();
                 return !this.autoRunning; // stop the autorun, but don't stop single stepping
             } else if (syscallGuard.startsWith('read_')) {
+                if (!this.scanBuffer.isExhausted) {
+                    let result;
+                    let todoSyscall = false;
+
+                    if (syscallGuard === 'read_int') {
+                        result = this.scanBuffer.readInt();
+                    } else if (syscallGuard === 'read_character') {
+                        result = this.scanBuffer.readChar();
+                    } else {
+                        todoSyscall = true;
+                        this.session.sendStderrLine(
+                            `Queued input with a ${syscallGuard} syscall not currently supported`
+                        );
+                    }
+
+                    if (result === undefined) {
+                        if (this.scanBuffer.isExhausted) {
+                            this.session.sendStderrLine('All queued input now exhausted');
+                        } else if (!todoSyscall) {
+                            this.session.sendStderrLine(
+                                `Invalid format encountered in queued input during ${syscallGuard} syscall: ${this.scanBuffer.initialContents()}. Queued input removed.`
+                            );
+                        }
+                        this.scanBuffer.clear();
+                    } else {
+                        this.session.sendStdoutLine(`[from queued input] ${this.provideInput(result.toString())}`);
+
+                        if (!this.inputNeeded) {
+                            return true;
+                        }
+                    }
+                }
+
                 if (this.inputNeeded) {
                     // we've already told the user to enter input, maybe say something different?
                     this.session.sendStderrLine(
@@ -246,6 +284,8 @@ class MipsRuntime {
                 this.session.sendEvent(new StoppedEvent('step', THREAD_ID));
             }
 
+            this.sendToIOView(input.trimEnd() + '\n');
+
             return `syscall ${sycallType}: ${input}`;
         } else if (result) {
             return result;
@@ -262,14 +302,19 @@ function numTo32BitHex(value: number) {
 }
 
 // TODO: this is structured incredibly badly
-class MipsSession extends LoggingDebugSession {
+class MipsSession extends DebugSession {
     private sourceFilePath: string = '';
     private source: string = '';
     private sourceName: string = '<source code>';
     private initialBreakpoints: number[] = [];
     private isVSCode: boolean = false;
+    private scanBuffer: ScanBuffer = new ScanBuffer();
 
     private runtime: MipsRuntime | undefined;
+
+    constructor() {
+        super();
+    }
 
     protected initializeRequest(response: DebugProtocol.InitializeResponse, args: DebugProtocol.InitializeRequestArguments): void {
         response.body = response.body || {};
@@ -356,20 +401,17 @@ class MipsSession extends LoggingDebugSession {
             this.sendEvent(new TerminatedEvent());
         }
 
-        // this.sendDebugLine(`wow ${this.source}`);
         const pathParts = fsPath.split(/[\/\\]/);
         this.sourceName = pathParts[pathParts.length - 1];
 
         try {
-            this.runtime = new MipsRuntime(this.source, this.sourceName, this.sourceFilePath, this);
+            this.runtime = new MipsRuntime(this.source, this.sourceName, this.sourceFilePath, this, this.scanBuffer);
         } catch (e) {
             this.sendError('Error:\n' + e);
             this.sendEvent(new TerminatedEvent());
         }
 
         this.runtime?.setBreakpoints(this.initialBreakpoints);
-
-        // this.sendSource();
 
         this.sendEvent(new StoppedEvent(
             'entry',
@@ -636,6 +678,26 @@ class MipsSession extends LoggingDebugSession {
         return super.sendEvent(event);
     }
 
+    protected customRequest(command: string, response: DebugProtocol.Response, args: any, request?: DebugProtocol.Request | undefined): void {
+        if (command === 'queueInput') {
+            if (this.scanBuffer.isExhausted) {
+                this.sendStdoutLine('[input queued]');
+            } else {
+                this.sendStdoutLine('[previous input queue cleared, and new input queued]');
+            }
+            this.scanBuffer.clear();
+
+            this.scanBuffer.addToQueue(args.contents);
+            this.sendResponse(response);
+
+            if (this.runtime?.inputNeeded) {
+                this.runtime.step();
+            }
+
+            return;
+        }
+    }
+
     protected dispatchRequest(request: DebugProtocol.Request) {
         // this.sendDebugLine(`request ${JSON.stringify(request)}`);
         return super.dispatchRequest(request);
@@ -647,5 +709,5 @@ class MipsSession extends LoggingDebugSession {
     }
 }
 
-const session = new MipsSession("out-file.txt");
+const session = new MipsSession();
 session.start(process.stdin, process.stdout);

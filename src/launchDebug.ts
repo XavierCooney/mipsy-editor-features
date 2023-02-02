@@ -71,3 +71,21 @@ export function setupDebugButton(context: vscode.ExtensionContext) {
         vscode.window.showErrorMessage(`Debug session must be reloaded before changes take effect!`);
     }));
 }
+
+export function setupSendInputButton(context: vscode.ExtensionContext) {
+    context.subscriptions.push(vscode.commands.registerTextEditorCommand('mipsy.debug.sendSelectionToInput', (editor, edit) => {
+        let text = editor.document.getText(editor.selection);
+        vscode.debug.activeDebugSession?.customRequest('queueInput', {
+            contents: text
+        });
+    }));
+
+    context.subscriptions.push(vscode.commands.registerCommand('mipsy.debug.sendFileToInput', (uri: vscode.Uri) => {
+        vscode.workspace.openTextDocument(uri).then(document => {
+            let text = document.getText();
+            vscode.debug.activeDebugSession?.customRequest('queueInput', {
+                contents: text
+            });
+        });
+    }));
+}

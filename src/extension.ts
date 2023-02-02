@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 
 import { setupDecompilationButton } from './decompileView';
 import { setupIOView } from './ioViewProvider';
-import { setupDebugButton } from './launchDebug';
+import { setupDebugButton, setupSendInputButton } from './launchDebug';
 import { deactivateClient, startLSP } from './lspClient';
 import { setupMemoryButton } from './memoryViewer';
 
@@ -15,15 +15,7 @@ export function activate(context: vscode.ExtensionContext) {
     setupDebugButton(context);
     setupMemoryButton(context);
     setupIOView(context);
-
-    // context.subscriptions.push(vscode.debug.registerDebugAdapterTrackerFactory('*', {
-    //     createDebugAdapterTracker(session: vscode.DebugSession) {
-    //         return {
-    //             onWillReceiveMessage: m => console.log(`> ${JSON.stringify(m, undefined, 2)}`),
-    //             onDidSendMessage: m => console.log(`< ${JSON.stringify(m, undefined, 2)}`)
-    //         };
-    //     }
-    // }));
+    setupSendInputButton(context);
 }
 
 export function deactivate() {
