@@ -10,6 +10,9 @@ body {
     white-space: pre-wrap;
     word-break: break-all;
 }
+.user-input {
+    color: var(--vscode-terminal-ansiCyan);
+}
 .line:empty::after {
     content: '\200B';
     visibility: hidden;
@@ -24,7 +27,7 @@ body {
 <div id="output"></div>
 <script>
 
-function handleCharCodes(codes) {
+function handleCharCodes(segments) {
     const wasAtTop = window.innerHeight + window.scrollY + 40 >= document.body.offsetHeight;
 
     let lastLineDiv = document.getElementById('output').lastElementChild;
@@ -35,21 +38,49 @@ function handleCharCodes(codes) {
         document.getElementById('output').appendChild(lastLineDiv);
     }
 
-    for (let code of codes) {
-        const c = String.fromCharCode(code);
+    segments = segments.map(segment => {
+        let subSegments = segment.str.split('\n');
+        let result = [];
+        for (let i = 0; i < subSegments.length; ++i) {
+            if (i !== 0) {
+                result.push({
+                    type: segment.type,
+                    str: '\n'
+                });
+            }
+            result.push({
+                type: segment.type,
+                str: subSegments[i]
+            })
+        }
 
-        if (c === '\n') {
+        return result;
+    }).flat(1);
+
+    for (let segment of segments) {
+        const str = segment.str;
+
+        if (str === '\n') {
             const newLineSpan = document.createElement('span');
             newLineSpan.classList.add('newline');
             newLineSpan.innerText = '⮰';
             newLineSpan.title = '(newline)';
+            if (segment.type === 'in') {
+                newLineSpan.classList.add('user-input');
+            }
             lastLineDiv.appendChild(newLineSpan);
 
             lastLineDiv = document.createElement('div');
             lastLineDiv.classList.add('line');
             document.getElementById('output').appendChild(lastLineDiv);
         } else {
-            lastLineDiv.innerText += c;
+            const span = document.createElement('span');
+            span.innerText = str;
+            span.title = '(user input)';
+            if (segment.type === 'in') {
+                span.classList.add('user-input');
+            }
+            lastLineDiv.appendChild(span)
         }
     }
 

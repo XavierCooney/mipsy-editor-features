@@ -5,7 +5,7 @@ import * as vscode from 'vscode';
 
 
 export function setupIOView(context: vscode.ExtensionContext) {
-    const allOutputs: {[id: string]: number[]} = {};
+    const allOutputs: {[id: string]: any[]} = {};
     let allWebviews: vscode.Webview[] = [];
 
     context.subscriptions.push(vscode.window.registerWebviewViewProvider(
@@ -65,13 +65,13 @@ export function setupIOView(context: vscode.ExtensionContext) {
             return;
         }
 
-        allOutputs[e.session.id].push(...e.body.charCodes);
+        allOutputs[e.session.id].push(...e.body.segments);
 
         if (e.session.id === vscode.debug.activeDebugSession?.id) { 
             allWebviews.forEach(webview => {
                 webview.postMessage({
                     command: 'incremental',
-                    body: e.body.charCodes
+                    body: e.body.segments
                 });
             });
         }

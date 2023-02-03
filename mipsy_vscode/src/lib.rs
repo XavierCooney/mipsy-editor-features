@@ -271,7 +271,7 @@ impl DebugRuntime {
                     DisassembleResponse {
                         address: address,
                         instruction: std::format!(
-                            "{:6} {}",
+                            "{:7} {}",
                             decompiled.inst_name.unwrap_or("[unknown instruction]".into()),
                             decompiled.arguments.join(", ")
                         ),

@@ -63,11 +63,14 @@ class MipsRuntime {
         this.autoRunning = true;
     }
 
-    sendToIOView(str: string) {
+    sendToIOView(str: string, type: 'in' | 'out') {
         this.session.sendEvent({
             event: 'mipsyOutput',
             body: {
-                charCodes: [...str].map(c => c.charCodeAt(0))
+                segments: [{
+                    str,
+                    type
+                }]
             },
             seq: 0,
             type: 'event'
@@ -113,7 +116,7 @@ class MipsRuntime {
                     this.session.sendStdoutLine(`syscall ${printType}: ${sanitisedContents}`);
                 }
 
-                this.sendToIOView(printContents);
+                this.sendToIOView(printContents, 'out');
 
                 return true;
             } else if (syscallGuard === 'exit') {
@@ -149,10 +152,15 @@ class MipsRuntime {
                         }
                         this.scanBuffer.clear();
                     } else {
+                        this.inputNeeded = true;
                         this.session.sendStdoutLine(`[from queued input] ${this.provideInput(result.toString())}`);
 
                         if (!this.inputNeeded) {
                             return true;
+                        } else {
+                            this.session.sendStderrLine('[clearing input queue due to above error]');
+                            this.scanBuffer.clear();
+                            this.inputNeeded = false;
                         }
                     }
                 }
@@ -284,7 +292,7 @@ class MipsRuntime {
                 this.session.sendEvent(new StoppedEvent('step', THREAD_ID));
             }
 
-            this.sendToIOView(input.trimEnd() + '\n');
+            this.sendToIOView(input.trimEnd() + '\n', 'in');
 
             return `syscall ${sycallType}: ${input}`;
         } else if (result) {
@@ -323,11 +331,11 @@ class MipsSession extends DebugSession {
         response.body.supportsConfigurationDoneRequest = true;
 
         response.body.supportsDisassembleRequest = true;
-		response.body.supportsSteppingGranularity = true;
-		response.body.supportsInstructionBreakpoints = true;
+		// response.body.supportsSteppingGranularity = true;
+		// response.body.supportsInstructionBreakpoints = true;
 
-        response.body.supportsReadMemoryRequest = true;
-		response.body.supportsWriteMemoryRequest = true;
+        // response.body.supportsReadMemoryRequest = true;
+		// response.body.supportsWriteMemoryRequest = true;
 
         response.body.supportTerminateDebuggee = true;
 
@@ -399,6 +407,7 @@ class MipsSession extends DebugSession {
         } catch {
             this.sendError(`can't read the file :[`);
             this.sendEvent(new TerminatedEvent());
+            return;
         }
 
         const pathParts = fsPath.split(/[\/\\]/);
@@ -409,6 +418,7 @@ class MipsSession extends DebugSession {
         } catch (e) {
             this.sendError('Error:\n' + e);
             this.sendEvent(new TerminatedEvent());
+            return;
         }
 
         this.runtime?.setBreakpoints(this.initialBreakpoints);
@@ -525,7 +535,7 @@ class MipsSession extends DebugSession {
         if (!this.runtime?.inputNeeded) {
             // this.sendError('not currently in input syscall!');
             // this.sendResponse(response);
-            result = 'not currently in input syscall!';
+            result = 'not currently in input syscall! Use `send to MIPS input` feature to queue up input.';
         } else {
             result = this.runtime.provideInput(args.expression);
         }
@@ -568,7 +578,7 @@ class MipsSession extends DebugSession {
                     instructionBytes: part.instruction_bytes,
                     symbol: part.symbols
                 };
-            })
+            }) || []
         };
 
         this.sendResponse(response);
