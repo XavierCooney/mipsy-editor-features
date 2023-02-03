@@ -2,7 +2,7 @@ use std::{rc::Rc, collections::HashSet, str::FromStr, fmt::{Display}};
 use serde::{Serialize, Deserialize};
 use mipsy_parser::TaggedFile;
 use wasm_bindgen::prelude::*;
-use mipsy_lib::{compile::{CompilerOptions}, MipsyError, InstSet, Binary, runtime::{SteppedRuntime, RuntimeSyscallGuard, PAGE_SIZE}, Runtime, error::runtime::ErrorContext, util::{get_segment, Segment}, TEXT_BOT, KTEXT_BOT, Safe, decompile::decompile_inst_into_parts};
+use mipsy_lib::{compile::{CompilerOptions}, MipsyError, InstSet, Binary, runtime::{SteppedRuntime, RuntimeSyscallGuard, PAGE_SIZE}, Runtime, error::{runtime::ErrorContext}, util::{get_segment, Segment}, TEXT_BOT, KTEXT_BOT, Safe, decompile::decompile_inst_into_parts};
 use mipsy_utils::{MipsyConfig};
 
 
@@ -17,10 +17,11 @@ pub struct ErrorReport {
     message: String,
     localised: bool,
     tips: Vec<String>,
-    file_tag: Rc<str>,
+    file_tag: String,
     line: u32,
     col: u32,
     col_end: u32,
+    is_warning: bool
 }
 
 #[derive(Serialize, Deserialize)]
@@ -28,9 +29,20 @@ pub struct ValidationResult {
     errors: Vec<ErrorReport>
 }
 
-fn check_source(iset: &InstSet, filename: &str, source: &str, compiler_options: &CompilerOptions, config: &MipsyConfig) -> Option<ErrorReport> {
+#[derive(Serialize, Deserialize)]
+struct FilenameAndSource {
+    filename: String,
+    source: String
+}
+
+fn check_source(iset: &InstSet, filename: &str, source: &str, compiler_options: &CompilerOptions, config: &MipsyConfig, extra_files: &Vec<FilenameAndSource>) -> Option<ErrorReport> {
+    let mut tagged_files = vec![TaggedFile::new(Some(&filename), source)];
+    tagged_files.extend(extra_files.iter().map(|extra_file| {
+        TaggedFile::new(Some(&extra_file.filename), &extra_file.source)
+    }));
+
     match mipsy_lib::compile(
-        &iset, vec![TaggedFile::new(Some(&filename), source)],
+        &iset, tagged_files,
         &compiler_options, &config
     ) {
         Ok(_) => None,
@@ -38,20 +50,22 @@ fn check_source(iset: &InstSet, filename: &str, source: &str, compiler_options: 
             MipsyError::Parser(parse_err) => Some(ErrorReport {
                 message: String::from("Parse failure: check your syntax!"), // is there actually no further info?
                 localised: true,
-                file_tag: parse_err.file_tag(),
+                file_tag: (*parse_err.file_tag()).to_owned(),
                 line: parse_err.line(),
                 col: parse_err.col(),
                 col_end: parse_err.col(),
-                tips: vec![]
+                tips: vec![],
+                is_warning: false,
             }),
             MipsyError::Compiler(compile_err) => Some(ErrorReport {
                 message: compile_err.error().message(),
                 localised: compile_err.error().should_highlight_line(),
-                file_tag: compile_err.file_tag(),
+                file_tag: (*compile_err.file_tag()).to_owned(),
                 line: compile_err.line(),
                 col: compile_err.col(),
                 col_end: compile_err.col_end(),
-                tips: compile_err.error().tips()
+                tips: compile_err.error().tips(),
+                is_warning: false,
             }),
             MipsyError::Runtime(_) => None, // should be unreachable?
         }
@@ -59,7 +73,7 @@ fn check_source(iset: &InstSet, filename: &str, source: &str, compiler_options: 
 }
 
 #[wasm_bindgen]
-pub fn test_compile(source: &str, filename: &str, max_problems: usize) -> Result<JsValue, JsValue>  {
+pub fn test_compile(primary_source: &str, primary_filename: &str, other_files: JsValue, max_problems: usize) -> Result<JsValue, JsValue>  {
     let compiler_options = &CompilerOptions::new(vec![]);
     let config = &MipsyConfig::default();
     let iset = &mipsy_instructions::inst_set();
@@ -67,10 +81,12 @@ pub fn test_compile(source: &str, filename: &str, max_problems: usize) -> Result
     let mut all_errors: Vec<ErrorReport> = vec![];
     let mut error_lines: Vec<u32> = vec![];
 
+    let other_files = serde_wasm_bindgen::from_value(other_files)?;
+
     while all_errors.len() < max_problems {
         let err = check_source(
-            iset, filename,
-            &source
+            iset, primary_filename,
+            &primary_source
                 .lines()
                 .enumerate()
                 .map(|(i, line)| {
@@ -81,23 +97,45 @@ pub fn test_compile(source: &str, filename: &str, max_problems: usize) -> Result
                     }
                 })
                 .collect::<Vec<&str>>().join("\n"),
-            compiler_options, config
+            compiler_options, config, &other_files
         );
 
         match err {
             None => break,
             Some(err) => {
+                if err.file_tag != primary_filename && err.file_tag != "" && !other_files.is_empty() {
+                    if all_errors.is_empty() {
+                        all_errors.push(ErrorReport {
+                            message: std::format!("there's an error in another file ({}: {}), which may be obscuring errors in this one", err.file_tag, err.message),
+                            localised: false,
+                            tips: vec![],
+                            file_tag: primary_filename.to_owned(),
+                            line: 0,
+                            col: 0,
+                            col_end: 0,
+                            is_warning: true,
+                        })
+                    }
+
+                    // different file - just give up now
+                    break;
+                }
+
                 if error_lines.iter().any(|line| err.line <= *line) {
                     // error occured before a previously received error - probably spurious
                     break;
                 }
 
-                all_errors.push(err.clone());
-                if !err.localised {
+                let line = err.line - 1;
+                let localised = err.localised;
+
+                all_errors.push(err);
+
+                if !localised {
                     break;
                 }
 
-                error_lines.push(err.line - 1);
+                error_lines.push(line);
             },
         }
     }
@@ -116,7 +154,7 @@ fn compile_from_source(source: &str, filename: &str, reason: &str, iset: &InstSe
         &compiler_options, &config
     ) {
         Ok(binary) => Ok(binary),
-        Err(_) => match check_source(iset, filename, source, compiler_options, config) {
+        Err(_) => match check_source(iset, filename, source, compiler_options, config, &vec![]) {
             Some(err) => Err(std::format!(
                 "Your MIPS program has an error so can't be {}: {}{}",
                 reason,

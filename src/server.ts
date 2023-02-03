@@ -79,7 +79,6 @@ const defaultSettings: MipsSettings = {
 const documentSettings: Map<string, Thenable<MipsSettings>> = new Map();
 
 connection.onDidChangeConfiguration(change => {
-    console.log('change ' + JSON.stringify(change));
     if (hasConfigurationCapability) {
         documentSettings.clear();
     }
@@ -102,9 +101,75 @@ function getDocumentSettings(resource: string): Thenable<MipsSettings> {
     return result;
 }
 
+let multiFileDependencies: {[uri: string]: string[]} = {};
+
+function getFilenameFromUri(uri: string) {
+    const components = uri.split('/');
+    return components[components.length - 1];
+}
+
+function setFilenameOfUri(uri: string, newName: string) {
+    const components = uri.split('/');
+    components.splice(components.length - 1);
+    components.push(newName);
+    return components.join('/');
+}
+
+function getMultifileSources(uri: string): string | { filename: string, source: string, uri: string }[] {
+    const rootDocument = documents.get(uri);
+    if (!rootDocument) {
+        return `root document not found ${uri}`;
+    }
+    const rootSource = rootDocument.getText();
+
+    const result = [{
+        filename: getFilenameFromUri(uri),
+        source: rootSource,
+        uri
+    }];
+
+    const allExtraFiles = Array.from(rootSource.matchAll(/#[ \t]*[ \t]*\[[ \t]*multifile[ \t]*\(([^)\n]*)\)[ \t]*\]/g)).map(match => {
+        return match[1].split(',').map(s => s.trim()).filter(s => s !== '');
+    }).flat(1);
+
+    const unavailableFiles: string[] = [];
+    const allUris: string[] = [];
+
+    allExtraFiles.forEach(extraFile => {
+        const newUri = setFilenameOfUri(uri, extraFile);
+
+        if (result.find(m => m.uri.toLowerCase() === newUri.toLowerCase()) !== undefined) {
+            return;
+        }
+
+        const subDocument = documents.get(newUri);
+
+        if (subDocument !== undefined) {
+            result.push({
+                filename: extraFile,
+                source: subDocument.getText(),
+                uri: newUri
+            });
+        } else {
+            unavailableFiles.push(extraFile);
+        }
+
+        allUris.push(newUri);
+    });
+
+    multiFileDependencies[uri] = allUris;
+
+    if (unavailableFiles.length) {
+        return `please open the file${unavailableFiles.length !== 1 ? 's' : ''} ${unavailableFiles.join(', ')} to get editor features support for this multi-file program.`;
+    }
+
+    return result.filter(file => file.uri !== uri);
+}
+
 documents.onDidClose(e => {
     delete splitSources[e.document.uri];
     delete cachedDefinitions[e.document.uri];
+    delete multiFileDependencies[e.document.uri];
     documentSettings.delete(e.document.uri);
 });
 
@@ -117,6 +182,15 @@ documents.onDidChangeContent(change => {
     splitSources[change.document.uri] = lines;
 
     validateTextDocument(change.document);
+
+    Object.keys(multiFileDependencies).forEach(key => {
+        if (multiFileDependencies[key].includes(change.document.uri)) {
+            const document = documents.get(key);
+            if (document) {
+                validateTextDocument(document);
+            }
+        }
+    });
 });
 
 async function validateTextDocument(textDocument: TextDocument): Promise<void> {
@@ -129,6 +203,24 @@ async function validateTextDocument(textDocument: TextDocument): Promise<void> {
 
     connection.console.log(`validating ${textDocument.uri}...`);
 
+    const multiFiles = getMultifileSources(textDocument.uri);
+
+    if (typeof multiFiles === 'string') {
+        connection.sendDiagnostics({
+            uri: textDocument.uri, diagnostics: [{
+                message: `error with multi-file support: ${multiFiles}`,
+                range: {
+                    start: { line: 0, character: 0 },
+                    end: { line: 0, character: Number.MAX_SAFE_INTEGER },
+                },
+                severity: DiagnosticSeverity.Error,
+                source: 'mipsy'
+            }]
+        });
+
+        return;
+    }
+
     const settings = await getDocumentSettings(textDocument.uri);
     const recheckAmt = settings?.maxDiagonstics || 3;
 
@@ -136,7 +228,7 @@ async function validateTextDocument(textDocument: TextDocument): Promise<void> {
 
     const diagnostics: Diagnostic[] = [];
 
-    const response = test_compile(source, 'test.s', recheckAmt);
+    const response = test_compile(source, getFilenameFromUri(textDocument.uri), multiFiles, recheckAmt);
 
     let tabsSize = 8;
     const tabSizeAttributeMatch = /#!\[[ \t]*tabsize[ \t]*\([ \t]*(\d{1,2})[ \t]*\)[ \t]*\]/.exec(source);
@@ -203,7 +295,7 @@ async function validateTextDocument(textDocument: TextDocument): Promise<void> {
         }
 
         const diagnostic: Diagnostic = {
-            severity: DiagnosticSeverity.Error,
+            severity: err.is_warning ? DiagnosticSeverity.Warning : DiagnosticSeverity.Error,
             range: {
                 start: {
                     line: lineNum,
