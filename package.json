@@ -3,7 +3,7 @@
   "displayName": "Mipsy Editor Features",
   "description": "",
   "publisher": "xavc",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "repository": {
     "url": "https://github.com/XavierCooney/mipsy-editor-features"
   },
@@ -22,8 +22,8 @@
   "main": "./out/extension.js",
   "capabilities": {
     "virtualWorkspaces": {
-      "supported": "limited",
-      "description": "LSP works, debugger not currently but will soon"
+      "supported": true,
+      "description": "Both LSP and DAP work in virtual workspaces"
     }
   },
   "contributes": {

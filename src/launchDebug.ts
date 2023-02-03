@@ -4,6 +4,7 @@ export function setupDebugButton(context: vscode.ExtensionContext) {
     context.subscriptions.push(vscode.commands.registerCommand('mips.debug',  async (file?: vscode.Uri) => {
         file = file || vscode.window.activeTextEditor?.document.uri;
         if (!file) {
+            vscode.window.showErrorMessage(`No selected file to debug!`);
             return;
         }
 
@@ -12,11 +13,12 @@ export function setupDebugButton(context: vscode.ExtensionContext) {
             return;
         }
 
-        // for (let doc of vscode.workspace.textDocuments) {
-        //     if (doc.uri.toString() === file.toString()) {
-        //         doc.save();
-        //     }
-        // }
+        let doCustomSourceSending = {};
+        if (file.scheme !== 'file') {
+            doCustomSourceSending = {
+                uri: file.toString()
+            };
+        }
 
         vscode.debug.startDebugging(
             undefined, //vscode.workspace.workspaceFolders[0],
@@ -26,12 +28,11 @@ export function setupDebugButton(context: vscode.ExtensionContext) {
                 request: 'launch',
                 program: file,
                 programUri: file.toString(),
-                console: 'integratedTerminal'
+                console: 'integratedTerminal',
+                doCustomSourceSending
             },
             undefined
         );
-
-        // vscode.window.
     }));
 
     const uriToSessionIds: {[uri: string]: Set<string>} = Object.create(null);
@@ -47,6 +48,25 @@ export function setupDebugButton(context: vscode.ExtensionContext) {
         }
 
         uriToSessionIds[uri].add(session.id);
+    }));
+
+    context.subscriptions.push(vscode.debug.onDidReceiveDebugSessionCustomEvent(e => {
+        if (e.session.type !== 'mipsy-1') {
+            return;
+        }
+
+        if (e.event !== 'mipsySource') {
+            return;
+        }
+
+        const uri = vscode.Uri.parse(e.body.uri);
+
+        vscode.workspace.openTextDocument(uri).then(document => {
+            let text = document.getText();
+            e.session.customRequest('mipsySource', {
+                source: text
+            });
+        });
     }));
 
     context.subscriptions.push(vscode.debug.onDidTerminateDebugSession(session => {

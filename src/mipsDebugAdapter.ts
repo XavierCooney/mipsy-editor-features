@@ -317,6 +317,7 @@ class MipsSession extends DebugSession {
     private initialBreakpoints: number[] = [];
     private isVSCode: boolean = false;
     private scanBuffer: ScanBuffer = new ScanBuffer();
+    private delayedGotSource: (() => void) | undefined;
 
     private runtime: MipsRuntime | undefined;
 
@@ -388,45 +389,69 @@ class MipsSession extends DebugSession {
         this.sendResponse(response);
     }
 
-    protected async launchRequest(response: DebugProtocol.LaunchResponse, args: DebugProtocol.LaunchRequestArguments, request?: DebugProtocol.Request | undefined): Promise<void> {
-        // this.sendDebugLine('opening');
-        this.sendResponse(response);
+    protected async launchRequest(response: DebugProtocol.LaunchResponse, args: any, request?: DebugProtocol.Request | undefined): Promise<void> {
+        const gotSource = () => {
+            try {
+                this.runtime = new MipsRuntime(this.source, this.sourceName, this.sourceFilePath, this, this.scanBuffer);
+            } catch (e) {
+                this.sendError('Error:\n' + e);
+                this.sendEvent(new TerminatedEvent());
+                return;
+            }
 
-        // TODO: this is vscode specific, i have no idea how to get the path for other clients
-        const fsPath = (args as any)?.program?.fsPath;
+            this.runtime?.setBreakpoints(this.initialBreakpoints);
+            this.sendResponse(response);
 
-        if (!fsPath) {
-            return this.sendError('no path :(');
+            this.sendEvent(new StoppedEvent(
+                'entry',
+                THREAD_ID
+            ));
+        };
+
+        if (args.doCustomSourceSending?.uri) {
+            this.sendDebugLine('loading source virtually');
+
+            const uri = args.doCustomSourceSending.uri;
+
+            this.sourceFilePath = uri;
+            const pathParts = uri.split(/[\/\\]/);
+            this.sourceName = pathParts[pathParts.length - 1];
+
+            this.sendEvent({
+                event: 'mipsySource',
+                body: args.doCustomSourceSending,
+                seq: 0,
+                type: 'event'
+            });
+
+            this.delayedGotSource = gotSource;
+        } else {
+            this.sendDebugLine('loading source directly');
+
+            // TODO: this is vscode specific, i have no idea how to get the path for other clients
+
+            const fsPath = args?.program?.fsPath;
+
+            if (!fsPath) {
+                return this.sendError('no path :(');
+            }
+
+            this.sourceFilePath = fsPath;
+
+            try {
+                const source = await fs.readFile(fsPath, 'utf8');
+                this.source = source;
+            } catch {
+                this.sendError(`can't read the file :[`);
+                this.sendEvent(new TerminatedEvent());
+                return;
+            }
+
+            const pathParts = fsPath.split(/[\/\\]/);
+            this.sourceName = pathParts[pathParts.length - 1];
+
+            gotSource();
         }
-
-        this.sourceFilePath = fsPath;
-
-        try {
-            const source = await fs.readFile(fsPath, 'utf8');
-            this.source = source;
-        } catch {
-            this.sendError(`can't read the file :[`);
-            this.sendEvent(new TerminatedEvent());
-            return;
-        }
-
-        const pathParts = fsPath.split(/[\/\\]/);
-        this.sourceName = pathParts[pathParts.length - 1];
-
-        try {
-            this.runtime = new MipsRuntime(this.source, this.sourceName, this.sourceFilePath, this, this.scanBuffer);
-        } catch (e) {
-            this.sendError('Error:\n' + e);
-            this.sendEvent(new TerminatedEvent());
-            return;
-        }
-
-        this.runtime?.setBreakpoints(this.initialBreakpoints);
-
-        this.sendEvent(new StoppedEvent(
-            'entry',
-            THREAD_ID
-        ));
     }
 
     protected configurationDoneRequest(response: DebugProtocol.ConfigurationDoneResponse, args: DebugProtocol.ConfigurationDoneArguments, request?: DebugProtocol.Request): void {
@@ -705,6 +730,14 @@ class MipsSession extends DebugSession {
             }
 
             return;
+        } else if (command === 'mipsySource') {
+            this.source = args.source;
+            const gotSource = this.delayedGotSource;
+            if (gotSource) {
+                this.delayedGotSource = undefined;
+                gotSource();
+            }
+            this.sendResponse(response);
         }
     }
 
