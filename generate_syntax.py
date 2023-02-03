@@ -86,6 +86,11 @@ add_pattern(
     r'(?i)\b(' + any_of(i['name'] for i in PSUEDO_INSTRUCTIONS) + r')\b'
 )
 
+add_pattern(
+    'entity.ident',
+    f'{PARSE_IDENT}'
+)
+
 # mipsy will parse registers like $1abc23 and give a useful error later,
 # but here we just highlight valid registers
 add_pattern(
