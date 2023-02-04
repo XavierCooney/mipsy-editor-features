@@ -21,7 +21,8 @@ pub struct ErrorReport {
     line: u32,
     col: u32,
     col_end: u32,
-    is_warning: bool
+    is_warning: bool,
+    is_multfile_related: bool
 }
 
 #[derive(Serialize, Deserialize)]
@@ -56,6 +57,7 @@ fn check_source(iset: &InstSet, filename: &str, source: &str, compiler_options: 
                 col_end: parse_err.col(),
                 tips: vec![],
                 is_warning: false,
+                is_multfile_related: false
             }),
             MipsyError::Compiler(compile_err) => Some(ErrorReport {
                 message: compile_err.error().message(),
@@ -66,6 +68,7 @@ fn check_source(iset: &InstSet, filename: &str, source: &str, compiler_options: 
                 col_end: compile_err.col_end(),
                 tips: compile_err.error().tips(),
                 is_warning: false,
+                is_multfile_related: false
             }),
             MipsyError::Runtime(_) => None, // should be unreachable?
         }
@@ -114,6 +117,7 @@ pub fn test_compile(primary_source: &str, primary_filename: &str, other_files: J
                             col: 0,
                             col_end: 0,
                             is_warning: true,
+                            is_multfile_related: true
                         })
                     }
 

@@ -23,6 +23,9 @@ import {
 
 import { suggestions as staticSuggestions }  from './lsp_data.json';
 
+import { fileURLToPath } from 'node:url';
+import { readFileSync } from 'node:fs';
+
 
 const connection = createConnection(ProposedFeatures.all);
 
@@ -32,7 +35,8 @@ const splitSources: {[uri: string]: string[]} = {};
 interface Definition {
     type: 'label' | 'constant',
     line: number,
-    identifier: string
+    identifier: string,
+    sourceUri: string,
 }
 
 const cachedDefinitions: {[uri: string]: Definition[] | undefined} = {};
@@ -115,6 +119,8 @@ function setFilenameOfUri(uri: string, newName: string) {
     return components.join('/');
 }
 
+const MULTIFILE_REGEX = /#[^\n@]*@[ \t]*\[[ \t]*multifile[ \t]*\(([^)\n]*)\)[ \t]*\]/g;
+
 function getMultifileSources(uri: string): string | { filename: string, source: string, uri: string }[] {
     const rootDocument = documents.get(uri);
     if (!rootDocument) {
@@ -128,7 +134,7 @@ function getMultifileSources(uri: string): string | { filename: string, source: 
         uri
     }];
 
-    const allExtraFiles = Array.from(rootSource.matchAll(/#[ \t]*[ \t]*\[[ \t]*multifile[ \t]*\(([^)\n]*)\)[ \t]*\]/g)).map(match => {
+    const allExtraFiles = Array.from(rootSource.matchAll(MULTIFILE_REGEX)).map(match => {
         return match[1].split(',').map(s => s.trim()).filter(s => s !== '');
     }).flat(1);
 
@@ -138,7 +144,7 @@ function getMultifileSources(uri: string): string | { filename: string, source: 
     allExtraFiles.forEach(extraFile => {
         const newUri = setFilenameOfUri(uri, extraFile);
 
-        if (result.find(m => m.uri.toLowerCase() === newUri.toLowerCase()) !== undefined) {
+        if (result.find(m => m.uri === newUri) !== undefined) {
             return;
         }
 
@@ -151,7 +157,18 @@ function getMultifileSources(uri: string): string | { filename: string, source: 
                 uri: newUri
             });
         } else {
-            unavailableFiles.push(extraFile);
+            try {
+                const path = fileURLToPath(newUri);
+                const source = readFileSync(path, { encoding: 'utf-8' });
+
+                result.push({
+                    filename: extraFile,
+                    source,
+                    uri: newUri
+                });
+            } catch {
+                unavailableFiles.push(extraFile);
+            }
         }
 
         allUris.push(newUri);
@@ -160,10 +177,24 @@ function getMultifileSources(uri: string): string | { filename: string, source: 
     multiFileDependencies[uri] = allUris;
 
     if (unavailableFiles.length) {
-        return `please open the file${unavailableFiles.length !== 1 ? 's' : ''} ${unavailableFiles.join(', ')} to get editor features support for this multi-file program.`;
+        const plural = unavailableFiles.length !== 1 ? 's' : '';
+        const delmitedFiles = unavailableFiles.map(file => '`' + file + '`').join(', ');
+        return `please open the file${plural} ${delmitedFiles} to get editor features support for this multi-file program.`;
     }
 
     return result.filter(file => file.uri !== uri);
+}
+
+function getLineWithMultifileDeclaration(uri: string): number {
+    // just for diagonstics purposes, there could be multiple multifile things
+    const lines = splitSources[uri] || '';
+    return lines.map((line, index) => {
+        if (MULTIFILE_REGEX.test(line)) {
+            return index;
+        } else {
+            return undefined;
+        }
+    }).filter(index => index !== undefined)[0] || 0;
 }
 
 documents.onDidClose(e => {
@@ -173,13 +204,15 @@ documents.onDidClose(e => {
     documentSettings.delete(e.document.uri);
 });
 
+function splitSourceIntoLines(source: string) {
+    let splitter = source.indexOf('\r\n') === -1 ? '\n' : '\r\n';
+    return source.split(splitter).map(line => line.replaceAll('\r', '').replaceAll('\n', ''));
+}
+
 documents.onDidChangeContent(change => {
     const source = change.document.getText();
-    let splitter = source.indexOf('\r\n') === -1 ? '\n' : '\r\n';
-    let lines = source.split(splitter).map(line => line.replaceAll('\r', '').replaceAll('\n', ''));
-
     delete cachedDefinitions[change.document.uri];
-    splitSources[change.document.uri] = lines;
+    splitSources[change.document.uri] = splitSourceIntoLines(source);
 
     validateTextDocument(change.document);
 
@@ -206,12 +239,14 @@ async function validateTextDocument(textDocument: TextDocument): Promise<void> {
     const multiFiles = getMultifileSources(textDocument.uri);
 
     if (typeof multiFiles === 'string') {
+        const multfileLine = getLineWithMultifileDeclaration(textDocument.uri);
+
         connection.sendDiagnostics({
             uri: textDocument.uri, diagnostics: [{
                 message: `error with multi-file support: ${multiFiles}`,
                 range: {
-                    start: { line: 0, character: 0 },
-                    end: { line: 0, character: Number.MAX_SAFE_INTEGER },
+                    start: { line: multfileLine, character: 0 },
+                    end: { line: multfileLine, character: Number.MAX_SAFE_INTEGER },
                 },
                 severity: DiagnosticSeverity.Error,
                 source: 'mipsy'
@@ -274,10 +309,12 @@ async function validateTextDocument(textDocument: TextDocument): Promise<void> {
     }
 
     for (let err of response.errors) {
-        // console.log(err);
         // just stick non localised errors at the start
-        const lineNum = err.localised ? err.line - 1 : 0;
-        // const lineNum = err.localised ? err.line - 1 : textDocument.lineCount - 1;
+        let lineNum = err.localised ? err.line - 1 : 0;
+
+        if (!err.localised && err.is_multfile_related) {
+            lineNum = getLineWithMultifileDeclaration(textDocument.uri);
+        }
 
         let message = err.message;
         if (err.tips && err.tips.length) {
@@ -330,40 +367,56 @@ function getDefinitions(uri: string): Definition[] {
     const lines = splitSources[uri] || [];
     const definitions: Definition[] = [];
 
-    lines.forEach((line, lineNum) => {
-        const trimmed = line.split('#')[0].trim();
-        if (trimmed === '') {
-            return;
-        }
+    const allSources = [{
+        uri: uri, lines
+    }];
 
-        let lineIter = line;
+    const multiFile = getMultifileSources(uri);
+    if (typeof multiFile !== 'string') {
+        allSources.push(...multiFile.map(file => ({
+            uri: file.uri,
+            lines: splitSourceIntoLines(file.source)
+        })));
+    }
 
-        while (true) {
-            const match = /^[ \t]*([a-zA-Z_0-9.]+)[ \t]*:(.*)$/.exec(lineIter);
-            if (match === null) {
-                break;
+    allSources.forEach(({uri, lines}) => {
+        lines.forEach((line, lineNum) => {
+            const trimmed = line.split('#')[0].trim();
+            if (trimmed === '') {
+                return;
             }
-            definitions.push({
-                identifier: match[1],
-                line: lineNum,
-                type: 'label'
-            });
-            lineIter = match[2];
-        }
 
-        while (true) {
-            const match = /^[ \t]*([a-zA-Z_0-9.]+)[ \t]*=(.*)$/.exec(lineIter);
-            if (match === null) {
-                break;
+            let lineIter = line;
+
+            while (true) {
+                const match = /^[ \t]*([a-zA-Z_0-9.]+)[ \t]*:(.*)$/.exec(lineIter);
+                if (match === null) {
+                    break;
+                }
+                definitions.push({
+                    identifier: match[1],
+                    line: lineNum,
+                    type: 'label',
+                    sourceUri: uri
+                });
+                lineIter = match[2];
             }
-            definitions.push({
-                identifier: match[1],
-                line: lineNum,
-                type: 'constant'
-            });
-            lineIter = match[2];
-        }
 
+            while (true) {
+                const match = /^[ \t]*([a-zA-Z_0-9.]+)[ \t]*=(.*)$/.exec(lineIter);
+                if (match === null) {
+                    break;
+                }
+                definitions.push({
+                    identifier: match[1],
+                    line: lineNum,
+                    type: 'constant',
+                    sourceUri: uri
+                });
+                lineIter = match[2];
+            }
+
+        });
     });
 
     return (cachedDefinitions[uri] = definitions);
@@ -552,7 +605,7 @@ connection.onDefinition(params => {
                         character: Number.MAX_SAFE_INTEGER
                     }
                 },
-                uri
+                uri: definition.sourceUri
             });
         }
     }

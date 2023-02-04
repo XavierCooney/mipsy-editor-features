@@ -63,7 +63,35 @@ def read_instructions(key):
             for instruction in doc[key]
         ]
 
+# add_pattern(
+#     ['markup.italic'],
+#     r'#[ \t]*<[ \t]*(multifile)[ \t]*\([^)\n]*\)[ \t]*>',
+# )
+
+# all_patterns.append({
+#     "name": "comment.line.number-sign.mips",
+#     "begin": "#",
+#     "end": "\n",
+#     "patterns": [{
+#         "name": "keyword.control.multifile.mips",
+#         "match": r"@[ \t]*<[ \t]*multifile[ \t]*\(([^)\n]*)\)[ \t]*>"
+#     }]
+# })
+
+add_pattern(
+    [
+        'comment.line.number-sign',
+        'keyword.control.multifile.mips',
+        'string.multifile-control.mips',
+        'keyword.control.multifile.mips',
+        'comment.line.number-sign',
+    ],
+    r'(#[^\n@]*)(@[ \t]*\[[ \t]*multifile[ \t]*\()([^)\n]*)(\)[ \t]*\])([^\n]*)'
+)
+
 add_pattern('comment.line.number-sign', r'#.*$')
+
+
 # don't bother with attributes
 add_pattern(
     'keyword.control.directive',
