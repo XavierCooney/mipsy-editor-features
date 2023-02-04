@@ -201,6 +201,12 @@ documents.onDidClose(e => {
     delete splitSources[e.document.uri];
     delete cachedDefinitions[e.document.uri];
     delete multiFileDependencies[e.document.uri];
+
+    connection.sendDiagnostics({
+        uri: e.document.uri,
+        diagnostics: []
+    });
+
     documentSettings.delete(e.document.uri);
 });
 
