@@ -7,7 +7,7 @@ import {
 } from '@vscode/debugprotocol';
 import { make_new_runtime, DebugRuntime } from '../mipsy_vscode/pkg/mipsy_vscode';
 import { ScanBuffer } from './scanBuffer';
-const { promises: fs } = require("fs");
+import * as fs from 'node:fs/promises';
 
 // const rand = Math.floor(Math.random() * 9000) + 1000;
 
@@ -314,7 +314,7 @@ class MipsSession extends DebugSession {
     private sourceFilePath: string = '';
     private source: string = '';
     private sourceName: string = '<source code>';
-    private initialBreakpoints: number[] = [];
+    private initialBreakpoints: (() => void) | undefined;
     private isVSCode: boolean = false;
     private scanBuffer: ScanBuffer = new ScanBuffer();
     private delayedGotSource: (() => void) | undefined;
@@ -399,7 +399,10 @@ class MipsSession extends DebugSession {
                 return;
             }
 
-            this.runtime?.setBreakpoints(this.initialBreakpoints);
+            if (this.initialBreakpoints) {
+                this.initialBreakpoints();
+            }
+
             this.sendResponse(response);
 
             this.sendEvent(new StoppedEvent(
@@ -428,8 +431,6 @@ class MipsSession extends DebugSession {
         } else {
             this.sendDebugLine('loading source directly');
 
-            // TODO: this is vscode specific, i have no idea how to get the path for other clients
-
             const fsPath = args?.program?.fsPath;
 
             if (!fsPath) {
@@ -440,6 +441,7 @@ class MipsSession extends DebugSession {
 
             try {
                 const source = await fs.readFile(fsPath, 'utf8');
+                this.sendDebugLine('file read');
                 this.source = source;
             } catch {
                 this.sendError(`can't read the file :[`);
@@ -618,20 +620,26 @@ class MipsSession extends DebugSession {
 
         let linesWithActualBreakpoints: number[] = [];
 
-        if (this.runtime) {
-            linesWithActualBreakpoints = this.runtime.setBreakpoints(breakpointLines);
-        } else {
-            this.initialBreakpoints = breakpointLines;
-            linesWithActualBreakpoints = breakpointLines; // guess that they're all valid
-        }
+        this.sendDebugLine('breakpoint request');
 
-        response.body = {
-            breakpoints: breakpoints.map(b => ({
-                verified: linesWithActualBreakpoints.includes(b.line)
-            }))
+        const handleBreakpoints = () => {
+            if (this.runtime) {
+                linesWithActualBreakpoints = this.runtime.setBreakpoints(breakpointLines);
+                response.body = {
+                    breakpoints: breakpoints.map(b => ({
+                        verified: linesWithActualBreakpoints.includes(b.line)
+                    }))
+                };
+
+                this.sendResponse(response);
+            } else {
+                this.sendDebugLine('delaying breakpoint request');
+
+                this.initialBreakpoints = handleBreakpoints;
+            }
         };
 
-        this.sendResponse(response);
+        handleBreakpoints();
     }
 
     protected scopesRequest(response: DebugProtocol.ScopesResponse, args: DebugProtocol.ScopesArguments, request?: DebugProtocol.Request | undefined): void {
