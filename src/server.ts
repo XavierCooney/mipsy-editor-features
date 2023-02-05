@@ -11,7 +11,10 @@ import {
     TextDocumentPositionParams,
     TextDocumentSyncKind,
     InitializeResult,
-    Location
+    Location,
+    SymbolKind,
+    DocumentSymbol,
+    SymbolInformation
 } from 'vscode-languageserver/node';
 
 import { test_compile } from '../mipsy_vscode/pkg/mipsy_vscode';
@@ -48,6 +51,7 @@ connection.onInitialize((params: InitializeParams) => {
     const capabilities = params.capabilities;
 
     hasConfigurationCapability = !!capabilities?.workspace?.configuration;
+    // console.log(capabilities.textDocument?.documentSymbol?.hierarchicalDocumentSymbolSupport);
     // capabilities.textDocument?.completion?.completionItem.
 
     const result: InitializeResult = {
@@ -60,7 +64,8 @@ connection.onInitialize((params: InitializeParams) => {
                 },
                 // resolveProvider: true
             },
-            definitionProvider: {}
+            definitionProvider: {},
+            documentSymbolProvider: true
         }
     };
 
@@ -617,6 +622,85 @@ connection.onDefinition(params => {
     }
     // console.log({result});
     return result;
+});
+
+const MAX_INT32 = 2147483647;
+
+connection.onDocumentSymbol(params => {
+    // TODO: support SymbolInformation when the lsp client doesn't understand DocumentSymbol
+
+    const symbols: DocumentSymbol[] = [];
+
+    const definitions = getDefinitions(params.textDocument.uri);
+
+    const stack: DocumentSymbol[] = [];
+
+    definitions.forEach(definition => {
+        if (definition.sourceUri !== params.textDocument.uri) {
+            return;
+        }
+
+        const newSymbol = {
+            kind: definition.type === 'label' ? SymbolKind.Class : SymbolKind.Constant,
+            name: definition.identifier,
+            range: {
+                start: { character: 0, line: definition.line },
+                end: { character: MAX_INT32, line: definition.line },
+            },
+            selectionRange: {
+                start: { character: 0, line: definition.line },
+                end: { character: MAX_INT32, line: definition.line },
+            },
+            children: definition.type === 'label' ? [] : undefined, // kinda hacky
+        };
+
+        let wasPushedToStack = false;
+
+        while (stack.length) {
+            if (definition.type !== 'label') {
+                break;
+            }
+
+            if (definition.identifier.startsWith(stack[stack.length - 1].name + '__')) {
+                stack[stack.length - 1].children?.push(newSymbol);
+                wasPushedToStack = true;
+                break;
+            }
+
+            stack.pop();
+        }
+
+        if (!wasPushedToStack) {
+            symbols.push(newSymbol);
+        }
+
+        if (definition.type === 'label') {
+            stack.push(newSymbol);
+        }
+    });
+
+    symbols.reverse();
+
+    function expandRanges(symbols: DocumentSymbol[], lastLine: number) {
+        symbols.forEach(symbol => {
+            if (symbol.children !== undefined) {
+                symbol.range.end.line = Math.max(symbol.selectionRange.end.line, lastLine);
+
+                symbol.children.reverse();
+                expandRanges(symbol.children, lastLine);
+                symbol.children.reverse();
+
+                lastLine = symbol.range.start.line - 1;
+            }
+        });
+    }
+
+    expandRanges(symbols, splitSources[params.textDocument.uri].length);
+
+    symbols.reverse();
+    console.log(JSON.stringify(symbols, null, 2));
+
+    return symbols;
 });
 
 
