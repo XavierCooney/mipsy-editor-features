@@ -314,6 +314,7 @@ class MipsSession extends DebugSession {
     private sourceFilePath: string = '';
     private source: string = '';
     private sourceName: string = '<source code>';
+    private sourceLines: string[] = [];
     private initialBreakpoints: (() => void) | undefined;
     private isVSCode: boolean = false;
     private scanBuffer: ScanBuffer = new ScanBuffer();
@@ -391,6 +392,11 @@ class MipsSession extends DebugSession {
 
     protected async launchRequest(response: DebugProtocol.LaunchResponse, args: any, request?: DebugProtocol.Request | undefined): Promise<void> {
         const gotSource = () => {
+            const splitter = this.source.indexOf('\r\n') === -1 ? '\n' : '\r\n';
+            this.sourceLines = this.source.split(splitter).map(
+                line => line.replaceAll('\r', '').replaceAll('\n', '')
+            );
+
             try {
                 this.runtime = new MipsRuntime(this.source, this.sourceName, this.sourceFilePath, this, this.scanBuffer);
             } catch (e) {
@@ -441,7 +447,6 @@ class MipsSession extends DebugSession {
 
             try {
                 const source = await fs.readFile(fsPath, 'utf8');
-                this.sendDebugLine('file read');
                 this.source = source;
             } catch {
                 this.sendError(`can't read the file :[`);
@@ -620,21 +625,39 @@ class MipsSession extends DebugSession {
 
         let linesWithActualBreakpoints: number[] = [];
 
-        this.sendDebugLine('breakpoint request');
-
         const handleBreakpoints = () => {
             if (this.runtime) {
+                const sourceLines = this.sourceLines;
+
+                breakpointLines = breakpointLines.map(line => {
+                    while (true) {
+                        if (line >= sourceLines.length) {
+                            break;
+                        }
+
+                        const sourceLine = sourceLines[line - 1];
+                        const withoutComments = sourceLine.split('#')[0].trim();
+                        if (withoutComments === '' || /^[A-Za-z_][A-Za-z_0-9.]*[ \t]*:$/.test(withoutComments)) {
+                            line++;
+                        } else {
+                            break;
+                        }
+                    }
+
+                    return line;
+                });
+
                 linesWithActualBreakpoints = this.runtime.setBreakpoints(breakpointLines);
                 response.body = {
-                    breakpoints: breakpoints.map(b => ({
-                        verified: linesWithActualBreakpoints.includes(b.line)
+                    breakpoints: breakpoints.map((breakpoint, index) => ({
+                        verified: linesWithActualBreakpoints.includes(breakpointLines[index]),
+                        line: breakpointLines[index],
+                        endLine: breakpointLines[index],
                     }))
                 };
 
                 this.sendResponse(response);
             } else {
-                this.sendDebugLine('delaying breakpoint request');
-
                 this.initialBreakpoints = handleBreakpoints;
             }
         };

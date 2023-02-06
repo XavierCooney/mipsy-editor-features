@@ -4,9 +4,10 @@ To install for the vscode, search for `Mipsy Editor Features` in the marketplace
 
 
 Features:
- - A language server
+ - A language server, providing:
    - Error reporting
    - Context specific code completion (instructions/directives/labels/constants/syscall numbers)
+   - Document symbol information
  - A decompile button (vscode only)
  - A debugger adapter (should work with any editor). With it, you can:
    - run and single-step through programs

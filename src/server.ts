@@ -458,8 +458,6 @@ connection.onCompletion((textDocumentPosition: TextDocumentPositionParams): Comp
 
     const allSuggestions = Array.from(staticSuggestions);
 
-    // console.log({before,after,beforeWord,beforeWithLabelsRemoved,isStartOfLine});
-
     definitions.forEach(definition => {
         allSuggestions.push({
             label: definition.identifier,
@@ -620,7 +618,7 @@ connection.onDefinition(params => {
             });
         }
     }
-    // console.log({result});
+
     return result;
 });
 
@@ -698,7 +696,6 @@ connection.onDocumentSymbol(params => {
     expandRanges(symbols, splitSources[params.textDocument.uri].length);
 
     symbols.reverse();
-    console.log(JSON.stringify(symbols, null, 2));
 
     return symbols;
 });
