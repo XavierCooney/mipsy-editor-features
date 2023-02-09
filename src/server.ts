@@ -14,7 +14,8 @@ import {
     Location,
     SymbolKind,
     DocumentSymbol,
-    SymbolInformation
+    SymbolInformation,
+    MarkupKind
 } from 'vscode-languageserver/node';
 
 import { test_compile } from '../mipsy_vscode/pkg/mipsy_vscode';
@@ -24,7 +25,7 @@ import {
     TextDocument,
 } from 'vscode-languageserver-textdocument';
 
-import { suggestions as staticSuggestions }  from './lsp_data.json';
+import { suggestions as staticSuggestions, hover_docs as staticHovers }  from './lsp_data.json';
 
 import { fileURLToPath } from 'node:url';
 import { readFileSync } from 'node:fs';
@@ -40,6 +41,7 @@ interface Definition {
     line: number,
     identifier: string,
     sourceUri: string,
+    docs: string,
 }
 
 const cachedDefinitions: {[uri: string]: Definition[] | undefined} = {};
@@ -64,8 +66,9 @@ connection.onInitialize((params: InitializeParams) => {
                 },
                 // resolveProvider: true
             },
-            definitionProvider: {},
-            documentSymbolProvider: true
+            definitionProvider: true,
+            documentSymbolProvider: true,
+            hoverProvider: true
         }
     };
 
@@ -391,24 +394,30 @@ function getDefinitions(uri: string): Definition[] {
     }
 
     allSources.forEach(({uri, lines}) => {
-        lines.forEach((line, lineNum) => {
-            const trimmed = line.split('#')[0].trim();
-            if (trimmed === '') {
-                return;
-            }
+        let docsLines: string[] = [];
 
+        lines.forEach((line, lineNum) => {
             let lineIter = line;
+            const docs = docsLines.join('\n').trim();
+
+            let definitionsOnThisLine: Definition[] = [];
+
+            function addDefinition(definition: Definition) {
+                definitionsOnThisLine.push(definition);
+                definitions.push(definition);
+            }
 
             while (true) {
                 const match = /^[ \t]*([a-zA-Z_0-9.]+)[ \t]*:(.*)$/.exec(lineIter);
                 if (match === null) {
                     break;
                 }
-                definitions.push({
+                addDefinition({
                     identifier: match[1],
                     line: lineNum,
                     type: 'label',
-                    sourceUri: uri
+                    sourceUri: uri,
+                    docs
                 });
                 lineIter = match[2];
             }
@@ -418,15 +427,30 @@ function getDefinitions(uri: string): Definition[] {
                 if (match === null) {
                     break;
                 }
-                definitions.push({
+                addDefinition({
                     identifier: match[1],
                     line: lineNum,
                     type: 'constant',
-                    sourceUri: uri
+                    sourceUri: uri,
+                    docs
                 });
                 lineIter = match[2];
             }
 
+            if (lineIter.trim() && definitionsOnThisLine.length > 0) {
+                definitionsOnThisLine.forEach(definition => {
+                    definition.docs = line.trim(); // lineIter.trim();
+                });
+            }
+
+            const commentMatch = /^[ \t]*#[ \t]?(.*)$/.exec(line);
+            if (line.trim() === '') {
+                docsLines.push('');
+            } else if (commentMatch !== null) {
+                docsLines.push(commentMatch[1].trimEnd());
+            } else {
+                docsLines = [];
+            }
         });
     });
 
@@ -448,7 +472,7 @@ connection.onCompletion((textDocumentPosition: TextDocumentPositionParams): Comp
         return [];
     }
 
-    const beforeWord = (/\$?[a-zA-Z.0-9]*$/.exec(before) || [''])[0] || '';
+    const beforeWord = (/\$?[a-zA-Z.0-9_]*$/.exec(before) || [''])[0] || '';
     const beforeWithLabelsRemoved = before.replace(/[A-Za-z_][A-Za-z_0-9.]*[ \t]*:/g, '');
 
     const isStartOfLine = /^[ \t]*$/.test(
@@ -462,6 +486,7 @@ connection.onCompletion((textDocumentPosition: TextDocumentPositionParams): Comp
         allSuggestions.push({
             label: definition.identifier,
             type: definition.type,
+            docs: definition.docs
         });
     });
 
@@ -584,10 +609,8 @@ function getWordAtPosition(params: TextDocumentPositionParams) {
     const before = line.slice(0, colNum);
     const after = line.slice(colNum);
 
-    const beforeWord = (/\$?[a-zA-Z.0-9]*$/.exec(before) || [''])[0] || '';
-    const afterWord = (/^\$?[a-zA-Z.0-9]*/.exec(after) || [''])[0] || '';
-
-    // console.log({beforeWord, afterWord});
+    const beforeWord = (/\$?[a-zA-Z.0-9_]*$/.exec(before) || [''])[0] || '';
+    const afterWord = (/^\$?[a-zA-Z.0-9_]*/.exec(after) || [''])[0] || '';
 
     return beforeWord + afterWord;
 }
@@ -698,6 +721,33 @@ connection.onDocumentSymbol(params => {
     symbols.reverse();
 
     return symbols;
+});
+
+connection.onHover(params => {
+    const word = getWordAtPosition(params);
+
+    const hovers: {[name: string]: { docs: string }} = staticHovers;
+
+    getDefinitions(params.textDocument.uri).forEach(definition => {
+        if (definition.docs) {
+            hovers[definition.identifier] = {
+                docs: definition.docs
+            };
+        }
+    });
+
+    let result = hovers[word] || hovers[word.toLowerCase()];
+
+    if (result) {
+        return {
+            contents: {
+                kind: MarkupKind.PlainText,
+                value: result.docs
+            }
+        };
+    }
+
+    return null;
 });
 
 

@@ -196,18 +196,21 @@ with open(os.path.join('syntaxes', 'mips.tmLanguage.json'), 'w') as file:
 
 # also statically build all the suggestions for the completion provider in the lsp
 static_completions = []
+hover_docs = {}
 
 for directive in DIRECTIVES:
     static_completions.append({
         'label': f'.{directive}',
         'type': 'directive',
+        'docs': ''
     })
 
 for i, register in enumerate(NAMED_REGISTERS):
     static_completions.append({
         'label': f'${register}',
         'type': 'register',
-        'sort_data': f'{i:02}'
+        'sort_data': f'{i:02}',
+        'docs': ''
     })
 
 seen_instructions = set()
@@ -215,12 +218,18 @@ for instruction in INSTRUCTIONS + PSUEDO_INSTRUCTIONS:
     if instruction['name'] in seen_instructions: continue
     seen_instructions.add(instruction['name'])
     if instruction['name'].startswith('DBG_'): continue
+
     static_completions.append({
         'label': instruction['name'].lower(),
         'type': 'instruction',
         'docs': instruction['desc'],
         'autoIndent': instruction['has_args']
     })
+
+    if instruction['desc'].strip() and instruction['desc'] != 'todo':
+        hover_docs[instruction['name'].lower()] = {
+            'docs': f"{instruction['name'].lower()}: {instruction['desc']}"
+        }
 
 SYSCALLS = {
     1: ('print int', True),
@@ -255,5 +264,6 @@ for syscall_num, syscall_info in SYSCALLS.items():
 for dir in ['src', 'out']:
     with open(os.path.join(dir, 'lsp_data.json'), 'w') as file:
         json.dump({
-            'suggestions': static_completions
+            'suggestions': static_completions,
+            'hover_docs': hover_docs
         }, file, indent=2)

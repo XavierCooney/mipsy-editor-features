@@ -7,3 +7,4 @@ mipsy/
 target/
 syntaxes/
 lsp_data.json
+vim-out/
