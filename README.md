@@ -47,6 +47,6 @@ To build, roughly:
 git clone https://github.com/insou22/mipsy.git
 npm i
 ./generate_syntax.py
-(cd mipsy_vscode; wasm-pack build --target nodejs --debug)
+(cd mipsy_vscode; wasm-pack build --target nodejs --release)
 npm run compile
 ```

@@ -12,7 +12,7 @@ import * as fs from 'node:fs/promises';
 // const rand = Math.floor(Math.random() * 9000) + 1000;
 
 const THREAD_ID = 1;
-const STEPS_PER_INTERVAL = 250;
+const STEPS_PER_INTERVAL = 300;
 
 class MipsRuntime {
     private readonly runtime: DebugRuntime;
@@ -31,23 +31,23 @@ class MipsRuntime {
         this.resumeOnInput = false;
         this.runningReverse = false;
 
-        // literally the jankiest part of this whole thing
-        setInterval(() => {
-            for (let i = 0; i < STEPS_PER_INTERVAL && this.autoRunning; ++i) {
-                if (!this.runningReverse) {
-                    if (!this.step()) {
-                        this.setAutorun(false, 'breakpoint');
-                    }
-                } else {
-                    if (!this.stepBack()) {
-                        this.setAutorun(false, 'breakpoint');
-                    }
+        this.runAutoStep();
+    }
+
+    runAutoStep() {
+        for (let i = 0; i < STEPS_PER_INTERVAL && this.autoRunning; ++i) {
+            if (!this.runningReverse) {
+                if (!this.step()) {
+                    this.setAutorun(false, 'breakpoint');
+                }
+            } else {
+                if (!this.stepBack()) {
+                    this.setAutorun(false, 'breakpoint');
                 }
             }
+        }
 
-            // this.session.sendEvent(new StoppedEvent('step'));
-            // this.session.sendEvent(new ContinuedEvent(THREAD_ID));
-        }, 50);
+        setTimeout(this.runAutoStep.bind(this), this.autoRunning ? 0 : 50);
     }
 
     setAutorun(auto: boolean, adapterReason: string) {
