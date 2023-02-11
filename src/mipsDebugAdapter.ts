@@ -436,8 +436,9 @@ class MipsSession extends DebugSession {
             this.delayedGotSource = gotSource;
         } else {
             this.sendDebugLine('loading source directly');
+            // this.sendDebugLine(JSON.stringify(args, null, 2));
 
-            const fsPath = args?.program?.fsPath;
+            const fsPath = args?.program?.fsPath || args?.program?.path;
 
             if (!fsPath) {
                 return this.sendError('no path :(');
