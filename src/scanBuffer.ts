@@ -13,10 +13,13 @@ export class ScanBuffer {
         this.isExhausted = false;
     }
 
-    consumeWhileMatchesRegex(regex: RegExp) {
+    consumeWhileMatchesRegex(regex: RegExp, single: boolean) {
         const result = [];
         while (this.index < this.buffer.length && regex.test(this.buffer[this.index])) {
             result.push(this.buffer[this.index++]);
+            if (single) {
+                break;
+            }
         }
         if (this.index >= this.buffer.length && !this.isExhausted) {
             this.isExhausted = true;
@@ -25,7 +28,7 @@ export class ScanBuffer {
     }
 
     skipWhitespace() {
-        this.consumeWhileMatchesRegex(/[ \r\n\t]/);
+        this.consumeWhileMatchesRegex(/[ \r\n\t]/, false);
     }
 
     initialContents() {
@@ -34,7 +37,7 @@ export class ScanBuffer {
 
     readInt() {
         this.skipWhitespace();
-        const contents = this.consumeWhileMatchesRegex(/[0-9-]/);
+        const contents = this.consumeWhileMatchesRegex(/[0-9-]/, false);
         let result: number | undefined = parseInt(contents);
         if (isNaN(result)) {
             result = undefined;
@@ -44,7 +47,7 @@ export class ScanBuffer {
 
     readChar() {
         this.skipWhitespace(); // todo: this isn't necessarily correct
-        return this.consumeWhileMatchesRegex(/./) || undefined;
+        return this.consumeWhileMatchesRegex(/./, true) || undefined;
     }
 
     clear() {
