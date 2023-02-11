@@ -10,7 +10,7 @@ export function setupMemoryButton(context: vscode.ExtensionContext) {
     function sendPanelData(id: string) {
         allPanels[id]?.webview.postMessage({
             type: 'more mem!',
-            data: memoryValues[id],
+            data: memoryValues[id] || [],
             selectedBytesPerRow: selectedBytesPerRow[id] || -1
         });
     }

@@ -571,35 +571,46 @@ impl DebugRuntime {
         )
     }
 
-    pub fn step_back(&mut self, stop_on_breakpoint: bool) -> bool {
-        let mut runtime = match self.mipsy_runtime.take() {
-            None => return false,
-            Some(Ok(runtime)) => runtime,
-            Some(Err(guard)) => match guard {
-                // we might be at a syscall guard - but in order to
-                // access previous states we need a Runtime. so to
-                // get a Runtime we pretend to actually run the syscall,
-                // so that we can then rewind time
-                RuntimeSyscallGuard::PrintInt(_, r) =>r,
-                RuntimeSyscallGuard::PrintFloat(_, r) => r,
-                RuntimeSyscallGuard::PrintDouble(_, r) => r,
-                RuntimeSyscallGuard::PrintString(_, r) => r,
-                RuntimeSyscallGuard::PrintChar(_, r) => r,
-                RuntimeSyscallGuard::ReadInt(r) => r(0),
-                RuntimeSyscallGuard::ReadFloat(r) => r(0f32),
-                RuntimeSyscallGuard::ReadDouble(r) => r(0f64),
-                RuntimeSyscallGuard::ReadChar(r) => r(0),
-                RuntimeSyscallGuard::ReadString(_, r) => r(vec![]),
-                RuntimeSyscallGuard::Sbrk(_, r) => r,
-                RuntimeSyscallGuard::Exit(r) => r,
-                RuntimeSyscallGuard::Open(_, r) => r(0),
-                RuntimeSyscallGuard::Read(_, r) => r((0, vec![])),
-                RuntimeSyscallGuard::Write(_, r) => r(0),
-                RuntimeSyscallGuard::Close(_, r) => r(0),
-                RuntimeSyscallGuard::ExitStatus(_, r) => r,
-                RuntimeSyscallGuard::Breakpoint(r) => r,
-                RuntimeSyscallGuard::Trap(r) => r,
+    fn force_get_runtime(&mut self) -> Option<(Runtime, bool)> {
+        match self.mipsy_runtime.take() {
+            None => return None,
+            Some(Ok(runtime)) => Some((runtime, false)),
+            Some(Err(guard)) => {
+                let mut runtime = match guard {
+                    // we might be at a syscall guard - but in order to
+                    // access previous states we need a Runtime. so to
+                    // get a Runtime we pretend to actually run the syscall,
+                    // so that we can then rewind time
+                    RuntimeSyscallGuard::PrintInt(_, r) => r,
+                    RuntimeSyscallGuard::PrintFloat(_, r) => r,
+                    RuntimeSyscallGuard::PrintDouble(_, r) => r,
+                    RuntimeSyscallGuard::PrintString(_, r) => r,
+                    RuntimeSyscallGuard::PrintChar(_, r) => r,
+                    RuntimeSyscallGuard::ReadInt(r) => r(0),
+                    RuntimeSyscallGuard::ReadFloat(r) => r(0f32),
+                    RuntimeSyscallGuard::ReadDouble(r) => r(0f64),
+                    RuntimeSyscallGuard::ReadChar(r) => r(0),
+                    RuntimeSyscallGuard::ReadString(_, r) => r(vec![]),
+                    RuntimeSyscallGuard::Sbrk(_, r) => r,
+                    RuntimeSyscallGuard::Exit(r) => r,
+                    RuntimeSyscallGuard::Open(_, r) => r(0),
+                    RuntimeSyscallGuard::Read(_, r) => r((0, vec![])),
+                    RuntimeSyscallGuard::Write(_, r) => r(0),
+                    RuntimeSyscallGuard::Close(_, r) => r(0),
+                    RuntimeSyscallGuard::ExitStatus(_, r) => r,
+                    RuntimeSyscallGuard::Breakpoint(r) => r,
+                    RuntimeSyscallGuard::Trap(r) => r,
+                };
+                runtime.timeline_mut().pop_last_state();
+                Some((runtime, true))
             }
+        }
+    }
+
+    pub fn step_back(&mut self, stop_on_breakpoint: bool) -> bool {
+        let (mut runtime, _) = match self.force_get_runtime() {
+            Some(runtime) => runtime,
+            None => return false
         };
 
         let success = runtime.timeline_mut().pop_last_state();
@@ -616,35 +627,42 @@ impl DebugRuntime {
         self.mipsy_runtime = None;
     }
 
-    pub fn read_memory(&self) -> Vec<u32> {
-        if let Some(Ok(runtime)) = &self.mipsy_runtime {
-            let pages = runtime.timeline().state().pages();
-            let mut pages = pages.iter().filter(
-                |&(&addr, _)| match get_segment(addr) {
-                    Segment::Data => true,
-                    Segment::Stack => true,
-                    _ => false
-                }
-            ).collect::<Vec<_>>();
-            pages.sort_unstable_by_key(
-                |&(&addr, _)| addr
-            );
+    pub fn read_memory(&mut self) -> Vec<u32> {
+        let (runtime, step_afterwards) = match self.force_get_runtime() {
+            Some(pair) => pair,
+            None => return vec![]
+        };
 
-            let mut result = Vec::with_capacity(pages.len() * (PAGE_SIZE + 1) + 1);
-            result.push(PAGE_SIZE as u32);
-
-            for (&addr, contents) in pages {
-                result.push(addr);
-                result.extend(contents.iter().map(|&val| match val {
-                    mipsy_lib::Safe::Valid(val) => (val as u32) + 1,
-                    mipsy_lib::Safe::Uninitialised => 0
-                }));
+        let pages = runtime.timeline().state().pages();
+        let mut pages = pages.iter().filter(
+            |&(&addr, _)| match get_segment(addr) {
+                Segment::Data => true,
+                Segment::Stack => true,
+                _ => false
             }
+        ).collect::<Vec<_>>();
+        pages.sort_unstable_by_key(
+            |&(&addr, _)| addr
+        );
 
-            result
-        } else {
-            vec![]
+        let mut result = Vec::with_capacity(pages.len() * (PAGE_SIZE + 1) + 1);
+        result.push(PAGE_SIZE as u32);
+
+        for (&addr, contents) in pages {
+            result.push(addr);
+            result.extend(contents.iter().map(|&val| match val {
+                mipsy_lib::Safe::Valid(val) => (val as u32) + 1,
+                mipsy_lib::Safe::Uninitialised => 0
+            }));
         }
+
+        self.mipsy_runtime = if step_afterwards {
+            Some(runtime.step().unwrap_or_else(|(runtime, _)| Ok(runtime)))
+        } else {
+            Some(Ok(runtime))
+        };
+
+        result
     }
 
     pub fn set_breakpoints_from_lines(&mut self, breakpoint_lines: Vec<u32>) -> Vec<u32> {
