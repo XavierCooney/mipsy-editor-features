@@ -563,6 +563,11 @@ class MipsSession extends DebugSession {
     protected evaluateRequest(response: DebugProtocol.EvaluateResponse, args: DebugProtocol.EvaluateArguments, request?: DebugProtocol.Request | undefined): void {
         // this is a ui hack, but use the repl as the input box. in vscode it makes sense
         if (!args.context || args.context !== 'repl') {
+            // TODO: support watches
+            response.body = {
+                result: 'watch not supported currently',
+                variablesReference: 0
+            };
             this.sendResponse(response);
             return;
         }
@@ -794,7 +799,7 @@ class MipsSession extends DebugSession {
     }
 
     protected dispatchRequest(request: DebugProtocol.Request) {
-        // this.sendDebugLine(`request ${JSON.stringify(request)}`);
+        this.sendDebugLine(`request ${JSON.stringify(request)}`);
         return super.dispatchRequest(request);
     }
 
