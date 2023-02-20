@@ -643,7 +643,7 @@ class MipsSession extends DebugSession {
     protected setBreakPointsRequest(response: DebugProtocol.SetBreakpointsResponse, args: DebugProtocol.SetBreakpointsArguments, request?: DebugProtocol.Request | undefined): void {
         const breakpoints = args.breakpoints || [];
 
-        this.sendDebugLine(JSON.stringify(breakpoints, null, 2));
+        // this.sendDebugLine(JSON.stringify(breakpoints, null, 2));
 
         let breakpointLines = breakpoints.map(
             breakpoint => breakpoint.line
