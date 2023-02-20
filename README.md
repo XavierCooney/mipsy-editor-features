@@ -7,7 +7,7 @@ Screenshot:
 
 ## How to use (vscode)
 
-### Install
+## Install
 
 To install the extension:
 1. Open the extensions marketplace (either select in the activity bar, use the `Extensions: Install Extensions` command, or press ctrl+shift+x).
@@ -17,7 +17,7 @@ To install the extension:
 
 ![A screenshot of vscode showing the exension page for the mipsy editor features extension](./docs/installation-instructions.png)
 
-### Editing features
+## Editing features
 
 Out of the box, installing `mipsy editor features` will enable a number of features.
 
@@ -49,7 +49,9 @@ You can view the contents of registers in the `Variables` views. Registers which
 
 You can view a hexdump of the data and stack segments by pressing the `Memory` button on the debug toolbar. The first column shows the address, the second shows the bytes (in hexadecimal) at that address, and the third shows the ASCII representation of the corresponding bytes (if there is one, otherwise a red dot). Grey question marks indicate uninitialised bytes. You can drag the memory view into another location like any other editor. You may want to adjust the bytes per row depending on the width of the view.
 
-If you have a program which requires a large amount of user input, you can right click an editor (while you're debugging a MIPS program) and select `Send file to MIPS input`. This will queue up the contents of the file as input to the currently running MIPS program (using scanf-like semantics). Alternatively you can select some text and then right click the selection and use `Send selection to MIPS input`. Currently only read integer and read character (with `" %c"` semantics) are supported with this feature, in the future I might add support for read string.
+If you have a program which requires a large amount of user input, you can right click an editor (while you're debugging a MIPS program) and select `Send file to MIPS input`. This will queue up the contents of the file as input to the currently running MIPS program (using scanf-like semantics). Alternatively you can select some text and then right click the selection and use `Send selection to MIPS input`. Currently only read integer and read character (with `" %c"` semantics) syscalls are supported with this feature, in the future I might add support for read string.
+
+You can right click in an editor of a program in the debugger and select `Open Disassembly View`. This will open a view of the disassembled program, useful for when stepping instruction by instruction. Because of the way the LSP and vscode work the view is a bit weird to use, so instead you can press `Decompile MIPS`, next to the debug button, which will open up a different way of viewing a MIPS program disassembly, but which is not integrated with the debugger.
 
 The open/read/write/close file syscalls and read/print float syscalls have no support.
 
@@ -59,7 +61,7 @@ Currently multiple file programs are only supported in the LSP (if I get time I'
 ```
 The inclusion of `a.s` in the above line is optional, but makes it easy to copy this line into `b.s` and `c.s`. If you're using virtual workspaces, you'll be prompted by the language server to actually open `b.s` and `c.s` in your editor [due to a limitation in the language server protocol](https://github.com/microsoft/language-server-protocol/issues/1264).
 
-## Alternate editors
+# Alternate editors
 
 If you're using a build of code without the proprietary marketplace, you can either grab a release from the Github releases (it might be out of date, let me know if that's the case), download the VSIX for the [extension page](https://marketplace.visualstudio.com/items?itemName=xavc.xavc-mipsy-features), or build the extension yourself.
 
@@ -70,14 +72,18 @@ I've got the language server working somewhat smoothly in neovim. If you're inte
 Language server diagonstics / decompile button / debugger all work by running mipsy compiled to WASM using `wasm-pack`. See `mipsy_vscode/src/lib.rs`. If I remember I'll add some more technical details.
 
 
-TODO:
+# TODO
  - Better breakpoint support, as well as other watchpoints
  - Improve code quality
  - Use a bundler to reduce extension size
+ - Use git submodules to pin mipsy version?
 
+# Build
 
 To build, roughly:
 ```
+git clone https://github.com/XavierCooney/mipsy-editor-features
+cd mipsy-editor-features
 git clone https://github.com/insou22/mipsy.git
 npm i
 ./generate_syntax.py

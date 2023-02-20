@@ -799,7 +799,7 @@ class MipsSession extends DebugSession {
     }
 
     protected dispatchRequest(request: DebugProtocol.Request) {
-        this.sendDebugLine(`request ${JSON.stringify(request)}`);
+        // this.sendDebugLine(`request ${JSON.stringify(request)}`);
         return super.dispatchRequest(request);
     }
 
