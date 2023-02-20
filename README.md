@@ -1,13 +1,13 @@
 # Mipsy editor features
 
-To install for the vscode, search for `Mipsy Editor Features` in the marketplace and click install. Please report bugs/feedback/feature requests [on GitHub](https://github.com/XavierCooney/mipsy-editor-features/issues).
+To install for vscode, search for `Mipsy Editor Features` in the marketplace and click install. Please report bugs/feedback/feature requests [on GitHub](https://github.com/XavierCooney/mipsy-editor-features/issues).
 
 Screenshot:
 ![A screenshot of vscode showing various features of the extension, including the debugger and diagonstic reporting](./screenshot-1.png?raw=true)
 
 ## How to use (vscode)
 
-## Install
+### Install
 
 To install the extension:
 1. Open the extensions marketplace (either select in the activity bar, use the `Extensions: Install Extensions` command, or press ctrl+shift+x).
@@ -61,7 +61,7 @@ Currently multiple file programs are only supported in the LSP (if I get time I'
 ```
 The inclusion of `a.s` in the above line is optional, but makes it easy to copy this line into `b.s` and `c.s`. If you're using virtual workspaces, you'll be prompted by the language server to actually open `b.s` and `c.s` in your editor [due to a limitation in the language server protocol](https://github.com/microsoft/language-server-protocol/issues/1264).
 
-# Alternate editors
+# Other editors
 
 If you're using a build of code without the proprietary marketplace, you can either grab a release from the Github releases (it might be out of date, let me know if that's the case), download the VSIX for the [extension page](https://marketplace.visualstudio.com/items?itemName=xavc.xavc-mipsy-features), or build the extension yourself.
 
