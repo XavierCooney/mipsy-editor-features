@@ -333,6 +333,9 @@ class MipsSession extends DebugSession {
         response.body.supportsConfigurationDoneRequest = true;
 
         response.body.supportsDisassembleRequest = true;
+
+        // vscode shows function breakpoints as verified even if we say we don't support them - so just add a handler which sends an error
+        response.body.supportsFunctionBreakpoints = true;
 		// response.body.supportsSteppingGranularity = true;
 		// response.body.supportsInstructionBreakpoints = true;
 
@@ -435,7 +438,7 @@ class MipsSession extends DebugSession {
 
             this.delayedGotSource = gotSource;
         } else {
-            this.sendDebugLine('loading source directly');
+            // this.sendDebugLine('loading source directly');
             // this.sendDebugLine(JSON.stringify(args, null, 2));
 
             const fsPath = args?.program?.fsPath || args?.program?.path;
@@ -617,8 +620,25 @@ class MipsSession extends DebugSession {
         this.sendResponse(response);
     }
 
+    protected setFunctionBreakPointsRequest(response: DebugProtocol.SetFunctionBreakpointsResponse, args: DebugProtocol.SetFunctionBreakpointsArguments, request?: DebugProtocol.Request | undefined): void {
+        if ((args.breakpoints || []).length > 0) {
+            this.sendError('function breakpoints not currently supported, please select breakpoints by using the button to the left of the relevant line number');
+        }
+
+        response.body = {
+            breakpoints: (args.breakpoints || []).map(() => {
+                return {
+                    verified: false
+                };
+            })
+        };
+        this.sendResponse(response);
+    }
+
     protected setBreakPointsRequest(response: DebugProtocol.SetBreakpointsResponse, args: DebugProtocol.SetBreakpointsArguments, request?: DebugProtocol.Request | undefined): void {
         const breakpoints = args.breakpoints || [];
+
+        this.sendDebugLine(JSON.stringify(breakpoints, null, 2));
 
         let breakpointLines = breakpoints.map(
             breakpoint => breakpoint.line

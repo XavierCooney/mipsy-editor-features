@@ -4,7 +4,7 @@ import json
 import yaml
 import os
 
-for dir in ['syntaxes', 'out']:
+for dir in ['syntaxes', 'out', 'vim-out']:
     os.makedirs(dir, exist_ok=True)
 
 
@@ -185,7 +185,7 @@ add_pattern(
     'Your MIPS program has an error so can\'t be dissassembled: ([^\n]*)'
 )
 
-with open(os.path.join('syntaxes', 'mips.tmLanguage.json'), 'w') as file:
+with open(os.path.join('syntaxes', 'mips.tmLanguage.json'), 'w', newline='\n') as file:
     json.dump({
         'name': 'MIPS',
         'scopeName': 'source.mips',
@@ -262,8 +262,62 @@ for syscall_num, syscall_info in SYSCALLS.items():
     })
 
 for dir in ['src', 'out']:
-    with open(os.path.join(dir, 'lsp_data.json'), 'w') as file:
+    with open(os.path.join(dir, 'lsp_data.json'), 'w', newline='\n') as file:
         json.dump({
             'suggestions': static_completions,
             'hover_docs': hover_docs
         }, file, indent=2)
+
+
+vimscript_syntax = [
+    'if exists("b:current_syntax")',
+    '  finish',
+    'endif',
+    'let s:cpo_save = &cpo',
+    'set cpo&vim',
+    'syn case ignore',
+    '', '',
+]
+
+for directive in DIRECTIVES:
+    vimscript_syntax.append(f'syn match Type "\\.{directive}"')
+
+vimscript_syntax.append(f'syn match Identifier "{PARSE_IDENT}"')
+vimscript_syntax.append(f'syn match Label "{PARSE_IDENT}[ \\t]:"')
+vimscript_syntax.append(f'syn match Comment "#.*$"')
+
+vimscript_syntax.append(r'syn region asmString start="\"" end="\"" skip="\\\\\|\\\""')
+
+def vim_escape(s):
+    for c in '()|?+':
+        s = s.replace(c, '\\' + c)
+    return s
+vimscript_syntax.append(vim_escape(
+    f'syn match Number "(-?)((0x)([0-9a-fA-F]+)|(0b)([0-1]+)|(0o?)([0-7]+)|([1-9][0-9]*|0))"'
+))
+
+# vimscript_syntax.append(vim_escape(f'syn match Identifier "\$({NAMED_REGISTERS})"'))
+for reg in NAMED_REGISTERS:
+    vimscript_syntax.append(f'syn match Identifier "\\${reg}"')
+
+# NAMED_REGISTERS = [
+#     'zero', 'at', 'v0', 'v1', 'a0', 'a1', 'a2', 'a3',
+#     't0', 't1', 't2', 't3', 't4', 't5', 't6', 't7',
+#     's0', 's1', 's2', 's3', 's4', 's5', 's6', 's7',
+#     't8', 't9', 'k0', 'k1', 'gp', 'sp', 'fp', 'ra'
+# ]
+
+add_pattern(
+    'keyword.operator.register.named',
+    r'\$(' + any_of(NAMED_REGISTERS) + r')\b'
+)
+
+vimscript_syntax.extend([
+    '', '',
+    'let b:current_syntax = "mips"',
+    'let &cpo = s:cpo_save',
+    'unlet s:cpo_save',
+])
+
+with open(os.path.join('vim-out', 'mips.vim'), 'w', newline='\n') as mips_syntax_file:
+    mips_syntax_file.write('\n'.join(vimscript_syntax))

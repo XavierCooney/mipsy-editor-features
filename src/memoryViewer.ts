@@ -32,7 +32,7 @@ export function setupMemoryButton(context: vscode.ExtensionContext) {
 
         const panel = vscode.window.createWebviewPanel(
             'mipsy-memory',
-            'Mipsy Memory',
+            'MIPSY memory',
             vscode.ViewColumn.Beside, {
                 enableScripts: true
             }
