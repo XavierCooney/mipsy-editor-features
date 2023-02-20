@@ -61,6 +61,8 @@ The inclusion of `a.s` in the above line is optional, but makes it easy to copy 
 
 ## Alternate editors
 
+If you're using a build of code without the proprietary marketplace, you can either grab a release from the Github releases (it might be out of date, let me know if that's the case), download the VSIX for the [extension page](https://marketplace.visualstudio.com/items?itemName=xavc.xavc-mipsy-features), or build the extension yourself.
+
 I've got the language server working somewhat smoothly in neovim. If you're interested in more details let me know and I'll write up some more specific instructions. The language server should work for [any editor which supports the language server protocol](https://microsoft.github.io/language-server-protocol/implementors/tools/). The debugger uses the debug adapter protocol, which means that the basic features of the debugger should theoretically work with other editors, but I haven't tested that yet.
 
 # Technical details
