@@ -77,7 +77,6 @@ Language server diagonstics / decompile button / debugger all work by running mi
  - Improve code quality
  - Use a bundler to reduce extension size
  - Use git submodules to pin mipsy version?
- - Figure out problem with columns and compile errors (or just return diagonstic for whole line when it's not a parse error)
 
 # Build
 
