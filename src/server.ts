@@ -307,7 +307,11 @@ async function validateTextDocument(textDocument: TextDocument): Promise<void> {
             let actualColumn = 0;
             let displayColumn = 0;
             for (let c of lineContents) {
-                displayColumn += c === '\t' ? tabsSize : 1;
+                if (c !== '\t') {
+                    displayColumn += 1;
+                } else {
+                    displayColumn += tabsSize - (displayColumn % tabsSize);
+                }
                 actualColumn++;
 
                 if (displayColumn === column) {
