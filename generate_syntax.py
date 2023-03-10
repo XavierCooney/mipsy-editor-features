@@ -219,14 +219,21 @@ for instruction in INSTRUCTIONS + PSUEDO_INSTRUCTIONS:
     seen_instructions.add(instruction['name'])
     if instruction['name'].startswith('DBG_'): continue
 
+    desc = instruction['desc']
+
+    if instruction['name'] == 'DIV':
+        desc = 'Divides the values in $Rs and $Rt, storing the $Rs / $Rt in LO, and $Rs % $Rt in HI'
+    elif instruction['name'] == 'DIVU':
+        desc = 'Divides the values in $Rs and $Rt, storing the $Rs / $Rt in LO, and $Rs % $Rt in HI, unsigned'
+
     static_completions.append({
         'label': instruction['name'].lower(),
         'type': 'instruction',
-        'docs': instruction['desc'],
+        'docs': desc,
         'autoIndent': instruction['has_args']
     })
 
-    if instruction['desc'].strip() and instruction['desc'] != 'todo':
+    if desc.strip() and desc != 'todo':
         hover_docs[instruction['name'].lower()] = {
             'docs': f"{instruction['name'].lower()}: {instruction['desc']}"
         }
