@@ -1,15 +1,10 @@
-use std::{rc::Rc, collections::HashSet, str::FromStr, fmt::{Display}};
+use std::{rc::Rc, collections::HashSet, str::FromStr, fmt::Display};
 use serde::{Serialize, Deserialize};
 use mipsy_parser::TaggedFile;
 use wasm_bindgen::prelude::*;
-use mipsy_lib::{compile::{CompilerOptions}, MipsyError, InstSet, Binary, runtime::{SteppedRuntime, RuntimeSyscallGuard, PAGE_SIZE}, Runtime, error::{runtime::ErrorContext}, util::{get_segment, Segment}, TEXT_BOT, KTEXT_BOT, Safe, decompile::decompile_inst_into_parts};
-use mipsy_utils::{MipsyConfig};
+use mipsy_lib::{compile::CompilerOptions, MipsyError, InstSet, Binary, runtime::{SteppedRuntime, RuntimeSyscallGuard, PAGE_SIZE}, Runtime, error::runtime::ErrorContext, util::{get_segment, Segment}, TEXT_BOT, KTEXT_BOT, Safe, decompile::decompile_inst_into_parts};
+use mipsy_utils::MipsyConfig;
 
-
-// i have no idea if i need to keep this alloc thingy
-#[cfg(feature = "wee_alloc")]
-#[global_allocator]
-static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -36,15 +31,15 @@ struct FilenameAndSource {
     source: String
 }
 
-fn check_source(iset: &InstSet, filename: &str, source: &str, compiler_options: &CompilerOptions, config: &MipsyConfig, extra_files: &Vec<FilenameAndSource>) -> Option<ErrorReport> {
-    let mut tagged_files = vec![TaggedFile::new(Some(&filename), source)];
+fn check_source(iset: &InstSet, filename: &str, source: &str, compiler_options: &CompilerOptions, config: &MipsyConfig, extra_files: &[FilenameAndSource]) -> Option<ErrorReport> {
+    let mut tagged_files = vec![TaggedFile::new(Some(filename), source)];
     tagged_files.extend(extra_files.iter().map(|extra_file| {
         TaggedFile::new(Some(&extra_file.filename), &extra_file.source)
     }));
 
     match mipsy_lib::compile(
-        &iset, tagged_files,
-        &compiler_options, &config
+        iset, tagged_files,
+        compiler_options, config
     ) {
         Ok(_) => None,
         Err(err) => match err {
@@ -84,7 +79,7 @@ pub fn test_compile(primary_source: &str, primary_filename: &str, other_files: J
     let mut all_errors: Vec<ErrorReport> = vec![];
     let mut error_lines: Vec<u32> = vec![];
 
-    let other_files = serde_wasm_bindgen::from_value(other_files)?;
+    let other_files: Vec<_> = serde_wasm_bindgen::from_value(other_files)?;
 
     while all_errors.len() < max_problems {
         let err = check_source(
@@ -94,9 +89,9 @@ pub fn test_compile(primary_source: &str, primary_filename: &str, other_files: J
                 .enumerate()
                 .map(|(i, line)| {
                     if error_lines.contains(&u32::try_from(i).unwrap()) {
-                        "".into()
+                        ""
                     } else {
-                        line.into()
+                        line
                     }
                 })
                 .collect::<Vec<&str>>().join("\n"),
@@ -106,7 +101,7 @@ pub fn test_compile(primary_source: &str, primary_filename: &str, other_files: J
         match err {
             None => break,
             Some(err) => {
-                if err.file_tag != primary_filename && err.file_tag != "" && !other_files.is_empty() {
+                if err.file_tag != primary_filename && !err.file_tag.is_empty() && !other_files.is_empty() {
                     if all_errors.is_empty() {
                         all_errors.push(ErrorReport {
                             message: std::format!("there's an error in another file ({}: {}), which may be obscuring errors in this one", err.file_tag, err.message),
@@ -154,11 +149,11 @@ fn compile_from_source(source: &str, filename: &str, reason: &str, iset: &InstSe
     let config = &MipsyConfig::default();
 
     match mipsy_lib::compile(
-        &iset, vec![TaggedFile::new(Some(&filename), source)],
-        &compiler_options, &config
+        iset, vec![TaggedFile::new(Some(filename), source)],
+        compiler_options, config
     ) {
         Ok(binary) => Ok(binary),
-        Err(_) => match check_source(iset, filename, source, compiler_options, config, &vec![]) {
+        Err(_) => match check_source(iset, filename, source, compiler_options, config, &[]) {
             Some(err) => Err(std::format!(
                 "Your MIPS program has an error so can't be {}: {}{}",
                 reason,
@@ -273,7 +268,7 @@ impl DebugRuntime {
         for i in 0..count {
             let address = start_address + 4 * i;
             let word = (|| {
-                let address = address.try_into().ok()?;
+                let address = address;
                 let line_num = self.binary.line_numbers.get(&address).map(
                     |&(_, line_num)| line_num
                 );
@@ -285,6 +280,7 @@ impl DebugRuntime {
                 }?;
                 let index: usize = index.try_into().ok()?;
                 // let bytes = vec.get(index..index+4)?;
+                #[allow(clippy::identity_op)]
                 let byte1 = *vec.get(index + 0)?;
                 let byte2 = *vec.get(index + 1)?;
                 let byte3 = *vec.get(index + 2)?;
@@ -306,13 +302,13 @@ impl DebugRuntime {
                         binary, iset, word, text_addr
                     );
                     DisassembleResponse {
-                        address: address,
+                        address,
                         instruction: std::format!(
                             "{:7} {}",
                             decompiled.inst_name.unwrap_or("[unknown instruction]".into()),
                             decompiled.arguments.join(", ")
                         ),
-                        line_num: line_num,
+                        line_num,
                         instruction_bytes: Some(std::format!(
                             "0x{:08X}",
                             word
@@ -321,14 +317,14 @@ impl DebugRuntime {
                     }
                 },
                 Some((_, line_num, Safe::Uninitialised)) => DisassembleResponse {
-                    address: address,
+                    address,
                     instruction: "[uninitialised]".into(),
-                    line_num: line_num,
+                    line_num,
                     instruction_bytes: Some("  ????????".into()),
                     symbols: None
                 },
                 None => DisassembleResponse {
-                    address: address,
+                    address,
                     instruction: "".into(),
                     line_num: None,
                     instruction_bytes: None,
@@ -428,7 +424,7 @@ impl DebugRuntime {
                 Err(err) => {
                     (
                         Some(Err(variant(guard))),
-                        std::format!("invalid input: {}", err.to_string())
+                        std::format!("invalid input: {}", err)
                     )
                 }
             }
@@ -460,7 +456,7 @@ impl DebugRuntime {
                     (self.mipsy_runtime, user_message) = if let Some(char) = maybe_char {
                         (Some(Ok(guard(*char))), "ok".into())
                     } else {
-                        (Some(Err(ReadChar(guard))), if bytes.len() == 0 {
+                        (Some(Err(ReadChar(guard))), if bytes.is_empty() {
                             "invalid input: no character provided!"
                         } else {
                             "invalid input: too many characters provided!" // or non-ascii
@@ -525,7 +521,7 @@ impl DebugRuntime {
     }
 
     fn ensure_registers(&mut self) {
-        if let Some(_) = &self.registers {
+        if self.registers.is_some() {
             return
         };
 
@@ -569,7 +565,7 @@ impl DebugRuntime {
     }
 
     pub fn get_pc(&self) -> Option<u32> {
-        return self.last_pc
+        self.last_pc
     }
 
     pub fn dump_registers(&mut self) -> Vec<i32> {
@@ -606,13 +602,13 @@ impl DebugRuntime {
                 lines.last().map(|&(_, pair)| pair)
             })
         ).map(
-            |(_, line)| line.clone()
+            |(_, line)| *line
         )
     }
 
     fn force_get_runtime(&mut self) -> Option<(Runtime, bool)> {
         match self.mipsy_runtime.take() {
-            None => return None,
+            None => None,
             Some(Ok(runtime)) => Some((runtime, false)),
             Some(Err(guard)) => {
                 let mut runtime = match guard {
@@ -659,7 +655,7 @@ impl DebugRuntime {
 
         let hit_breakpoint = stop_on_breakpoint && self.breakpoint_addrs.contains(&self.get_pc().unwrap_or(0));
 
-        return success && !hit_breakpoint;
+        success && !hit_breakpoint
     }
 
     pub fn remove_runtime(&mut self) {
@@ -673,6 +669,8 @@ impl DebugRuntime {
         };
 
         let pages = runtime.timeline().state().pages();
+
+        #[allow(clippy::match_like_matches_macro)]
         let mut pages = pages.iter().filter(
             |&(&addr, _)| match get_segment(addr) {
                 Segment::Data => true,
@@ -734,7 +732,7 @@ pub fn make_new_runtime(source: &str, filename: &str) -> Result<DebugRuntime, St
                 breakpoint_addrs: HashSet::new(),
                 registers: None,
                 last_pc: None,
-                iset: iset,
+                iset,
                 sources: vec![(filename.into(), source.into())]
             };
             runtime.invalidate_register_cache();
