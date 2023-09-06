@@ -277,7 +277,7 @@ async function validateTextDocument(textDocument: TextDocument): Promise<void> {
 
     const diagnostics: Diagnostic[] = [];
 
-    const response = test_compile(source, getFilenameFromUri(textDocument.uri), multiFiles, recheckAmt);
+    const response = test_compile(source, getFilenameFromUri(textDocument.uri), multiFiles, recheckAmt, false);
 
     let tabsSize = 8;
     const tabSizeAttributeMatch = /#!\[[ \t]*tabsize[ \t]*\([ \t]*(\d{1,2})[ \t]*\)[ \t]*\]/.exec(source);

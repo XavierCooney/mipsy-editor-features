@@ -3,7 +3,7 @@
   "displayName": "Mipsy Editor Features",
   "description": "",
   "publisher": "xavc",
-  "version": "1.0.4",
+  "version": "1.1.1",
   "repository": {
     "url": "https://github.com/XavierCooney/mipsy-editor-features"
   },
@@ -176,11 +176,11 @@
     "@types/mocha": "^10.0.1",
     "@types/node": "16.x",
     "@types/vscode": "1.67.0",
+    "@types/vscode-webview": "^1.57.1",
     "@typescript-eslint/eslint-plugin": "^5.45.0",
     "@typescript-eslint/parser": "^5.45.0",
     "@vscode/test-electron": "^2.2.0",
     "browserify": "^17.0.0",
-    "@types/vscode-webview": "^1.57.1",
     "eslint": "^8.28.0",
     "esmify": "^2.1.1",
     "glob": "^8.0.3",

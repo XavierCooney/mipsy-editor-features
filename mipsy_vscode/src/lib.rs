@@ -1,8 +1,8 @@
 use std::{rc::Rc, collections::HashSet, str::FromStr, fmt::Display};
 use serde::{Serialize, Deserialize};
-use mipsy_parser::TaggedFile;
+use mipsy_parser::{TaggedFile, MpProgram};
 use wasm_bindgen::prelude::*;
-use mipsy_lib::{compile::CompilerOptions, MipsyError, InstSet, Binary, runtime::{SteppedRuntime, RuntimeSyscallGuard, PAGE_SIZE}, Runtime, error::runtime::ErrorContext, util::{get_segment, Segment}, TEXT_BOT, KTEXT_BOT, Safe, decompile::decompile_inst_into_parts};
+use mipsy_lib::{compile::{CompilerOptions, get_kernel}, MipsyError, InstSet, Binary, runtime::{SteppedRuntime, RuntimeSyscallGuard, PAGE_SIZE}, Runtime, error::runtime::ErrorContext, util::{get_segment, Segment}, TEXT_BOT, KTEXT_BOT, Safe, decompile::decompile_inst_into_parts};
 use mipsy_utils::MipsyConfig;
 
 
@@ -31,14 +31,22 @@ struct FilenameAndSource {
     source: String
 }
 
-fn check_source(iset: &InstSet, filename: &str, source: &str, compiler_options: &CompilerOptions, config: &MipsyConfig, extra_files: &[FilenameAndSource]) -> Option<ErrorReport> {
+fn check_source(iset: &InstSet, filename: &str, source: &str, compiler_options: &CompilerOptions, config: &MipsyConfig, extra_files: &[FilenameAndSource], check_main: bool) -> Option<ErrorReport> {
     let mut tagged_files = vec![TaggedFile::new(Some(filename), source)];
     tagged_files.extend(extra_files.iter().map(|extra_file| {
         TaggedFile::new(Some(&extra_file.filename), &extra_file.source)
     }));
 
-    match mipsy_lib::compile(
-        iset, tagged_files,
+    let mut kernel = if check_main {
+        get_kernel()
+    } else {
+        MpProgram::new(vec![], vec![])
+    };
+
+
+
+    match mipsy_lib::compile_with_kernel(
+        iset, tagged_files, &mut kernel,
         compiler_options, config
     ) {
         Ok(_) => None,
@@ -71,7 +79,7 @@ fn check_source(iset: &InstSet, filename: &str, source: &str, compiler_options: 
 }
 
 #[wasm_bindgen]
-pub fn test_compile(primary_source: &str, primary_filename: &str, other_files: JsValue, max_problems: usize) -> Result<JsValue, JsValue>  {
+pub fn test_compile(primary_source: &str, primary_filename: &str, other_files: JsValue, max_problems: usize, check_main: bool) -> Result<JsValue, JsValue>  {
     let compiler_options = &CompilerOptions::new(vec![]);
     let config = &MipsyConfig::default();
     let iset = &mipsy_instructions::inst_set();
@@ -95,7 +103,7 @@ pub fn test_compile(primary_source: &str, primary_filename: &str, other_files: J
                     }
                 })
                 .collect::<Vec<&str>>().join("\n"),
-            compiler_options, config, &other_files
+            compiler_options, config, &other_files, check_main
         );
 
         match err {
@@ -153,7 +161,7 @@ fn compile_from_source(source: &str, filename: &str, reason: &str, iset: &InstSe
         compiler_options, config
     ) {
         Ok(binary) => Ok(binary),
-        Err(_) => match check_source(iset, filename, source, compiler_options, config, &[]) {
+        Err(_) => match check_source(iset, filename, source, compiler_options, config, &[], true) {
             Some(err) => Err(std::format!(
                 "Your MIPS program has an error so can't be {}: {}{}",
                 reason,
