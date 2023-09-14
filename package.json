@@ -3,7 +3,7 @@
   "displayName": "Mipsy Editor Features",
   "description": "",
   "publisher": "xavc",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "repository": {
     "url": "https://github.com/XavierCooney/mipsy-editor-features"
   },
@@ -24,6 +24,10 @@
     "virtualWorkspaces": {
       "supported": true,
       "description": "Both LSP and DAP work in virtual workspaces"
+    },
+    "untrustedWorkspaces": {
+      "supported": "limited",
+      "description": "debugger won't work without trust"
     }
   },
   "contributes": {
