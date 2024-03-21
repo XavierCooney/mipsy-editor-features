@@ -289,8 +289,9 @@ vimscript_syntax = [
 for directive in DIRECTIVES:
     vimscript_syntax.append(f'syn match Type "\\.{directive}"')
 
-vimscript_syntax.append(f'syn match Identifier "{PARSE_IDENT}"')
-vimscript_syntax.append(f'syn match Label "{PARSE_IDENT}[ \\t]:"')
+# vimscript_syntax.append(f'syn match Identifier "{PARSE_IDENT}"')
+vimscript_syntax.append(f'syn match Function "{PARSE_IDENT}"')
+vimscript_syntax.append(f'syn match Label "{PARSE_IDENT}[ \\t]*:"')
 vimscript_syntax.append(f'syn match Comment "#.*$"')
 
 vimscript_syntax.append(r'syn region asmString start="\"" end="\"" skip="\\\\\|\\\""')
@@ -320,6 +321,7 @@ add_pattern(
 )
 
 vimscript_syntax.extend([
+    'hi def link asmString String',
     '', '',
     'let b:current_syntax = "mips"',
     'let &cpo = s:cpo_save',
@@ -327,4 +329,4 @@ vimscript_syntax.extend([
 ])
 
 with open(os.path.join('vim-out', 'mips.vim'), 'w', newline='\n') as mips_syntax_file:
-    mips_syntax_file.write('\n'.join(vimscript_syntax))
+    print('\n'.join(vimscript_syntax), file=mips_syntax_file)

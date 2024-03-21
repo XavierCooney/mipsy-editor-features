@@ -65,7 +65,17 @@ The inclusion of `a.s` in the above line is optional, but makes it easy to copy 
 
 If you're using a build of code without the proprietary marketplace, you can either grab a release from the Github releases (it might be out of date, let me know if that's the case), download the VSIX for the [extension page](https://marketplace.visualstudio.com/items?itemName=xavc.xavc-mipsy-features), or build the extension yourself.
 
-I've got the language server working somewhat smoothly in neovim. If you're interested in more details let me know and I'll write up some more specific instructions. The language server should work for [any editor which supports the language server protocol](https://microsoft.github.io/language-server-protocol/implementors/tools/). The debugger uses the debug adapter protocol, which means that the basic features of the debugger should theoretically work with other editors, but I haven't tested that yet.
+I've got the language server working somewhat smoothly in neovim, see below. The language server should work for [any editor which supports the language server protocol](https://microsoft.github.io/language-server-protocol/implementors/tools/). The debugger uses the debug adapter protocol, which means that the basic features of the debugger should theoretically work with other editors, but I haven't tested that yet.
+
+## Neovim
+
+A bit of manual config is required (this is far from ergonomic), but these steps work for me:
+1. Either build this repo (see [Build](#build)), or grab a built copy by unzipping the published VSIX.
+2. Copy/symlink `vim-out/mipsy.lua` into `~/.config/nvim/lua/mipsy.lua`, and adjust the path to the `mipsy-lsp.sh` script in the LSP setup part of `mipsy.lua` to the correct location. Or add `vim-out` to your PATH and just replace the line with `cmd = { 'mipsy-lsp.sh' }`.
+3. Copy/symlink `vim-out/mips.vim` into where you put your syntax files, e.g. `~/.config/nvim/syntax/mips.vim`. You may want to edit the syntax file to your taste.
+4. Make sure to `require('mipsy').setup()` and then call `lspconfig.mipsy_editor_features.setup(...)` in your startup lua config.
+
+Some tweaking and debugging is probably required.
 
 # Technical details
 
